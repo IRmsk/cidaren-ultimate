@@ -458,10 +458,38 @@ def _find_example_word(ctx, word: str, exam_zh: str) -> str | None:
     return None
 
 
+def _infer_lens_from_stem(content: str) -> list | None:
+    """从题干文本推断每空字母数：数下划线占位符。
+
+    场景：服务器未给 w_lens（OCR 读图、mock、异常数据）时，题干里
+    通常有 `_ _ _ _` / `____` / `＿＿` 这类空位占位，数出下划线个数
+    就是目标单词的字母数，据此可严格筛选候选答案。
+    """
+    if not content:
+        return None
+    # 归一化：全角下划线 -> 半角；把空格分隔的下划线组 `_ _ _` 合并成等量连续下划线 `___`
+    t = re.sub(r'＿+', lambda m: '_' * len(m.group(0)), content)
+    t = re.sub(r'_(?:\s+_)+', lambda m: '_' * m.group(0).count('_'), t)
+    runs = re.findall(r'_+', t)
+    if not runs:
+        return None
+    # 过滤明显噪声：超长 run（OCR 把分隔线/破折号当下划线）
+    lens = [len(r) for r in runs if 1 <= len(r) <= 15]
+    return lens or None
+
+
 def _complete_sentence(ctx, topic: dict):
-    """mode 51-54 补全单词：按 w_len + w_tip 在词表中匹配。"""
+    """mode 51-54 补全单词：按 w_len + w_tip 在词表中匹配。
+
+    长度来源：服务器 w_lens/w_len 优先；缺失时从题干下划线占位推断。
+    """
     w_lens = topic.get("w_lens") or []
     word_len = w_lens[0] if w_lens else topic.get("w_len") or 0
+    if not word_len:
+        # 服务器没给长度 -> 数题干下划线推断
+        content = (topic.get("stem") or {}).get("content", "")
+        lens = _infer_lens_from_stem(content)
+        word_len = lens[0] if lens else 0
     w_tip = (topic.get("w_tip") or "").lower()
     for word in ctx.word_list:
         if word.lower().startswith(w_tip):
@@ -473,12 +501,16 @@ def _complete_sentence(ctx, topic: dict):
 
 
 def _complete_spelling(ctx, topic: dict):
-    """mode 73 补全拼写：5 级候选池（easy 核心）。"""
+    """mode 73 补全拼写：5 级候选池（easy 核心）。
+
+    每空字母数：服务器 w_lens 优先；缺失时从题干下划线占位推断，
+    让拼写题在没有长度信息时也能按字母数筛选候选。
+    """
     stem_obj = topic.get("stem") or {}
     content = stem_obj.get("content", "")
     remark = stem_obj.get("remark", "")
     tips = re.findall(r'\{(\w+)\}', content)
-    w_lens = topic.get("w_lens") or []
+    w_lens = topic.get("w_lens") or _infer_lens_from_stem(content) or []
     fixed = {w.lower() for w in re.findall(r'[A-Za-z]+', re.sub(r'\{[^}]*\}', ' ', content))}
     if not tips:
         slot_count = content.count("{}")
@@ -487,6 +519,12 @@ def _complete_spelling(ctx, topic: dict):
         candidates = _candidate_words(ctx, remark)
         if candidates:
             picked = [w for w in candidates if w.lower() in opt_lower]
+            if not picked and w_lens:
+                # 无选项直命中时，用推断长度过滤候选（严格 -> 宽松）
+                picked = [w for w in candidates
+                          if not w_lens or len(w) == w_lens[0]]
+                if not picked:
+                    picked = candidates
             if picked:
                 return json.dumps(picked[:slot_count] if slot_count else picked)
         return None

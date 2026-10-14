@@ -143,6 +143,49 @@ class TestSolverPure(unittest.TestCase):
         ctx = type("Ctx", (), {"word_dict": {}, "word_list": []})()
         self.assertIsNone(_complete_spelling(ctx, topic))
 
+    def test_infer_lens_from_stem(self):
+        """数下划线占位推断每空字母数（服务器没给 w_lens 时的兜底）。"""
+        # 空格分隔的下划线串：6 个空位
+        self.assertEqual(solver._infer_lens_from_stem("abandon: a _ _ _ _ _ _"), [6])
+        # 连续下划线
+        self.assertEqual(solver._infer_lens_from_stem("a ____ b"), [4])
+        # 全角下划线
+        self.assertEqual(solver._infer_lens_from_stem("＿ ＿ ＿"), [3])
+        # 多空位
+        self.assertEqual(solver._infer_lens_from_stem("green ___ 存储 __"), [3, 2])
+        # 无下划线
+        self.assertIsNone(solver._infer_lens_from_stem("green manufacturing"))
+        # 空输入
+        self.assertIsNone(solver._infer_lens_from_stem(""))
+
+    def test_complete_spelling_infer_len(self):
+        """w_lens 缺失时，从题干下划线推断长度筛选候选。"""
+        from cidaren.solver import _candidate_words
+        topic = {
+            "topic_mode": 73,
+            "stem": {"content": "绿色存储: g _ _ _ _ _", "remark": "绿色存储"},
+            "w_lens": [],          # 服务器没给长度
+            "options": [],
+        }
+        ctx = type("Ctx", (), {"word_dict": {"绿色存储": "green storage"},
+                               "word_list": ["green", "storage"]})()
+        # 候选池应只留下 5 字母且以 g 开头的单词
+        cands = _candidate_words(ctx, "绿色存储")
+        self.assertIn("green", cands)
+        # _complete_spelling 通过推断长度 [5] 严格匹配 green
+        self.assertEqual(json.loads(_complete_spelling(ctx, topic)), ["green"])
+
+    def test_complete_sentence_infer_len(self):
+        """mode 51-54 无 w_len 时用推断长度匹配。"""
+        from cidaren.solver import _complete_sentence
+        topic = {
+            "topic_mode": 51,
+            "stem": {"content": "g _ _ _ _ _", "remark": ""},
+            "w_tip": "g",
+        }
+        ctx = type("Ctx", (), {"word_list": ["green", "grey", "great"]})()
+        self.assertEqual(_complete_sentence(ctx, topic), "green")
+
 
 class TestConfig(unittest.TestCase):
     def test_env_file(self):
