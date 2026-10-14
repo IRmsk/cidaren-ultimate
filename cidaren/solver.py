@@ -98,13 +98,22 @@ def _filler_option(ctx, topic: dict) -> tuple:
 
 
 def _query_means(ctx, word: str) -> list | None:
-    """查询单词释义列表。先走学习卡片缓存 word_defs，再走查词接口（easy 思路）。"""
+    """查询单词释义列表：学习卡片缓存 -> 离线词典（ECDICT 开源数据）-> 查词接口。
+
+    离线词典层插在缓存之后、查词接口之前：常见考试词离线直接命中，
+    USE_WORD_API=0 的弱网环境也能查词，减少对网络的依赖。
+    """
     if not word:
         return None
     w = word.lower()
     defs = ctx.word_defs.get(w)
     if defs:
         return defs
+    # 离线释义词典（ECDICT 开源数据，MIT 协议）
+    offline = bk.load_dict_zh().get(w)
+    if offline:
+        ctx.word_defs[w] = offline
+        return offline
     # 弱网可关查词接口（USE_WORD_API=0），直接走 AI/空白试探
     if not as_bool(ctx.config.get("USE_WORD_API"), True):
         return None
@@ -724,7 +733,7 @@ def solve_topic(ctx: TopicContext, topic: dict, log=lambda s: None):
     answer = None
     src = None
 
-    # 1. 题库指纹缓存（新格式 + 偷来的旧格式双查）
+    # 1. 题库指纹缓存（新格式 + 旧格式双查）
     cached = bk.bank_lookup(key, ctx.bank)
     if cached is not None:
         answer = list(cached) if isinstance(cached, list) else cached

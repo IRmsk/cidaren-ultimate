@@ -68,7 +68,7 @@ class TestBank(unittest.TestCase):
         self.assertEqual(bank.bank_load()["1::a::b::c"]["ans"], 2)
 
     def test_bank_lookup_legacy(self):
-        # 模拟偷来的 LangQi99 旧格式题库（3 段 key）
+        # 模拟旧格式题库（3 段 key）
         bank.bank_save({})
         legacy = bank.BANK_LEGACY_FILE
         import json as _json

@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-bank.py — 三库合一的本地答案库（整合 easy_cidaren 的短语库/单词库 + LangQi99 的题目指纹题库）
-- bank:       题目指纹 -> {"ans": 答案, "stem": 题干}   （LangQi99 bank.json 格式）
-- phrase_lib: 中文释义 -> [完整短语, ...]               （easy answer_lib.json 短语）
-- word_lib:   中文释义 -> [单词/变体, ...]              （easy answer_lib.json _word_answers）
+bank.py — 本地答案库（题库指纹 + 短语/单词答案 + 离线释义词典）
+- bank:       题目指纹 -> {"ans": 答案, "stem": 题干}    （历史积累的题目指纹库）
+- phrase_lib: 中文释义 -> [完整短语, ...]                （短语答案库）
+- word_lib:   中文释义 -> [单词/变体, ...]               （单词答案库）
+- dict_zh:    英文单词 -> [中文释义, ...]                （离线释义词典，ECDICT 开源数据）
 判错后自动从服务端 answer_corrects 学习，越用越准。文件锁 + pid 临时文件保证多进程安全。
 """
 from __future__ import annotations
@@ -18,11 +19,14 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 BANK_FILE = DATA_DIR / "bank.json"
 ANSWER_LIB_FILE = DATA_DIR / "answer_lib.json"
 WORD_POOL_FILE = DATA_DIR / "word_pool.json"
-# 从 LangQi99/cidaren 偷来的旧格式题库（key = mode::stem::remark，3 段）
+# 历史积累的题目指纹库（key = mode::stem::remark，3 段）
 BANK_LEGACY_FILE = DATA_DIR / "bank_legacy.json"
+# 离线释义词典：英文单词 -> 中文释义（来源：ECDICT 开源英汉词典，MIT 协议）
+DICT_ZH_FILE = DATA_DIR / "dict_zh.json"
 WORD_KEY = "_word_answers"
 
 _lock = threading.Lock()
+_dict_zh_cache: dict | None = None
 
 
 def _ensure_dir():
@@ -82,7 +86,7 @@ def _read_json(path: Path) -> dict:
 # ---- 题库（题目指纹缓存）----
 
 def bank_load() -> dict:
-    """合并新格式 bank.json + 偷来的旧格式 bank_legacy.json（LangQi99 3段key）。"""
+    """合并新格式 bank.json + 旧格式 bank_legacy.json（3段 key）。"""
     bank = _read_json(BANK_FILE)
     legacy = _read_json(BANK_LEGACY_FILE)
     for k, v in legacy.items():
@@ -105,7 +109,7 @@ def bank_add(key: str, ans, stem: str = ""):
 
 
 def legacy_key_of(key: str) -> str | None:
-    """把新格式 key (mode::kind::sn::remark::opts) 转成旧格式 (mode::sn::remark) 用于查偷来的题库。"""
+    """把新格式 key (mode::kind::sn::remark::opts) 转成旧格式 (mode::sn::remark) 用于查历史题库。"""
     parts = key.split("::")
     if len(parts) == 5:
         return f"{parts[0]}::{parts[2]}::{parts[3]}"
@@ -113,7 +117,7 @@ def legacy_key_of(key: str) -> str | None:
 
 
 def bank_lookup(key: str, bank: dict):
-    """先查新格式 key，未命中再尝试旧格式（LangQi99 偷来的 1918 条）。"""
+    """先查新格式 key，未命中再尝试旧格式（历史积累的题目指纹）。"""
     if key in bank:
         return bank[key]["ans"]
     legacy = legacy_key_of(key)
@@ -123,8 +127,19 @@ def bank_lookup(key: str, bank: dict):
 
 
 def load_word_pool() -> dict:
-    """加载偷来的全局词表（easy word_pool.json: word_zh -> URL编码英文短语）。"""
+    """加载全局词表（word_zh -> URL编码英文短语）。"""
     return _read_json(WORD_POOL_FILE)
+
+
+def load_dict_zh() -> dict:
+    """加载离线释义词典（英文单词 -> 中文释义列表），带模块级缓存。"""
+    global _dict_zh_cache
+    if _dict_zh_cache is None:
+        try:
+            _dict_zh_cache = _read_json(DICT_ZH_FILE) or {}
+        except Exception:
+            _dict_zh_cache = {}
+    return _dict_zh_cache
 
 
 # ---- 短语/单词答案库（easy_cidaren 格式）----
@@ -205,7 +220,7 @@ def add_words(word_zh, words):
 
 
 def lib_stats() -> dict:
-    """返回三库条目数，供 Web 控制台展示。"""
+    """返回各库条目数，供 Web 控制台展示。"""
     bank = bank_load()
     lib = _lib()
     words = lib.get(WORD_KEY, {})
@@ -214,4 +229,5 @@ def lib_stats() -> dict:
         "phrase": len([k for k in lib if k != WORD_KEY]),
         "word": len(words) if isinstance(words, dict) else 0,
         "pool": len(load_word_pool()),
+        "dict": len(load_dict_zh()),
     }

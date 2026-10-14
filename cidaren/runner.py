@@ -105,7 +105,7 @@ def run_one_round(ctx: TopicContext, task_id, release_id, log=print):
     data = chose.get("data") or {}
     words = data.get("word_list") or []
     setup_from_word_list(ctx, chose)
-    # 合并偷来的全局词表（easy word_pool.json，URL 编码 -> 明文），补 mode 32/73 反查
+    # 合并全局词表（word_pool.json，URL 编码 -> 明文），补 mode 32/73 反查
     try:
         from urllib.parse import unquote
         pool = bk.load_word_pool()
@@ -113,7 +113,7 @@ def run_one_round(ctx: TopicContext, task_id, release_id, log=print):
             if zh and zh not in ctx.word_dict:
                 ctx.word_dict[zh] = unquote(en)
         if pool:
-            log(f"  [词表] 全局词表已挂载 {len(pool)} 条（偷来的）")
+            log(f"  [词表] 全局词表已挂载 {len(pool)} 条")
     except Exception:
         pass
     log(f"  [词表] 共 {len(words)} 词")

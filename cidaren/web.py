@@ -946,12 +946,13 @@ function renderConfigStatus(missing) {
 }
 
 /**
- * renderStats — 渲染答案库统计（题库/短语/单词/词表条目数）。
+ * renderStats — 渲染答案库统计（题库/短语/单词/词表/词典条目数）。
+ * 词典为离线释义词典（ECDICT 开源数据），词义题离线直接命中。
  */
 function renderStats(stats) {
   if (!stats) return;
   document.getElementById("stats-box").textContent =
-    `答案库: 题库 ${stats.bank} · 短语 ${stats.phrase} · 单词 ${stats.word} · 词表 ${stats.pool}`;
+    `答案库: 题库 ${stats.bank} · 短语 ${stats.phrase} · 单词 ${stats.word} · 词表 ${stats.pool} · 词典 ${stats.dict}`;
 }
 
 /**
