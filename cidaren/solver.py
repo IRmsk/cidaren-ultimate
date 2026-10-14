@@ -720,13 +720,13 @@ def _blank_probe(ctx, topic, key, stem, code, mode, logf):
             return _submit_next(ctx, dv.get("topic_code", new_code), random.randint(8000, 12000))
         ctx.stats["fail"] += 1
         _report(ctx, mode, "skip", 0, stem, "", "")
-        logf("SKIP", "纠错仍失败", " [skip]")
+        logf("SKIP", f"纠错仍失败: {((topic.get('stem') or {}).get('remark') or stem)[:34]}", " [skip]")
         return _submit_next(ctx, dv.get("topic_code", new_code), 20000)
 
     ctx.stats["skip"] += 1
     ctx.stats["fail"] += 1
     _report(ctx, mode, "skip", 0, stem, "", "")
-    logf("SKIP", "无解跳过", " [skip]")
+    logf("SKIP", f"无解跳过: {((topic.get('stem') or {}).get('remark') or stem)[:34]}", " [skip]")
     return _submit_next(ctx, code, 20000)
 
 

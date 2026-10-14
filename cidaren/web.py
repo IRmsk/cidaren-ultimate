@@ -1312,10 +1312,11 @@ function renderLogLine(line) {
     const modeTag = m[1], body = m[2], src = m[3].toLowerCase();
     let badge = "", badgeCls = "";
     const s = body.toUpperCase();
-    if (s.startsWith("OK"))      { badge = "对"; badgeCls = "ok"; }
-    else if (s.startsWith("FIX")){ badge = "学"; badgeCls = "fix"; }
+    if (s.startsWith("OK"))       { badge = "对"; badgeCls = "ok"; }
+    else if (s.startsWith("FIX")) { badge = "学"; badgeCls = "fix"; }
+    else if (s.startsWith("SKIP")){ badge = "跳"; badgeCls = "err"; }
     else if (s.includes("答题") || body.startsWith("?")) { badge = "答"; badgeCls = "ask"; }
-    else                         { badge = "题"; badgeCls = "ask"; }
+    else                          { badge = "题"; badgeCls = "ask"; }
     const srcLabel = { rule:"规则", llm:"AI", corrects:"纠错", cache:"题库", blank:"试探", skip:"跳过" }[src] || src;
     const badgeHtml = badge ? `<span class="lg-badge ${badgeCls}">${badge}</span>` : "";
     return `<div class="log-line"><span class="lg-mode">${modeTag}</span>${badgeHtml}<span class="lg-msg">${escapeHtml(body)}</span><span class="lg-src ${src}">${srcLabel}</span></div>`;
@@ -1326,7 +1327,7 @@ function renderLogLine(line) {
   if (m) {
     const head = m[1], rest = m[2];
     let cls = "info";
-    if (/^(网络异常|风控|失败|异常|保护|选词失败|跳过)/.test(head)) cls = "err";
+    if (/^(网络异常|风控|失败|异常|保护|选词失败|跳过|超时|卡住|放弃)/.test(head)) cls = "err";
     else if (/^(满分|完成|签到)/.test(head)) cls = "ok";
     return `<div class="log-line"><span class="lg-tag ${cls}">${escapeHtml(head)}</span><span class="lg-msg ${cls === "err" ? "err" : "muted"}">${escapeHtml(rest)}</span></div>`;
   }

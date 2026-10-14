@@ -91,6 +91,7 @@ def run_one_round(ctx: TopicContext, task_id, release_id, log=print):
     ctx.task_id = task_id
     ctx.release_id = release_id
     ctx.bank = bk.bank_load()
+    stats0 = dict(ctx.stats)  # 本轮统计快照（轮末 diff 汇总）
 
     # 1. 选词（构建词表 + 提交待练词）
     try:
@@ -207,7 +208,16 @@ def run_one_round(ctx: TopicContext, task_id, release_id, log=print):
         else:
             time.sleep(random.uniform(gap * 0.8, gap * 1.3))
 
-    # 4. 签到
+    # 4. 轮末汇总：本轮答对/跳过/来源分布（告诉用户哪些题没做、靠谁答的）
+    try:
+        delta = {k: ctx.stats[k] - stats0.get(k, 0) for k in ctx.stats}
+        log(f"  [轮报] 答对 {delta.get('ok', 0)} · 答错 {delta.get('fail', 0)} · "
+            f"跳过 {delta.get('skip', 0)} · 来源: 题库 {delta.get('cache', 0)} · "
+            f"规则 {delta.get('rule', 0)} · AI {delta.get('ai', 0)} · 试探 {delta.get('blank', 0)}")
+    except Exception:
+        pass
+
+    # 5. 签到
     try:
         sr = ctx.client.signin()
         sd = sr.get("data") or {}
@@ -244,7 +254,8 @@ def run_full(client, task_id, release_id, config=None, log=print, task_type=1):
             stuck = 0
         prev_score = score
         if stuck >= 2:
-            log(f"  [卡住] 连续 {stuck} 轮分数未提升 ({score}分)，放弃该任务")
+            sk = ctx.stats.get("skip", 0)
+            log(f"  [卡住] 连续 {stuck} 轮分数未提升 ({score}分)，累计跳过 {sk} 题，放弃该任务")
             return
         if round_num < max_rounds:
             # 重置重刷
@@ -262,6 +273,10 @@ def run_full(client, task_id, release_id, config=None, log=print, task_type=1):
                 continue
             log("  [重置] 失败，停止")
             return
+        # max_rounds 用完仍未满分：明确告知放弃原因
+        sk = ctx.stats.get("skip", 0)
+        log(f"  [放弃] 已刷满 {max_rounds} 轮仍未满分 ({score}分)，累计跳过 {sk} 题，任务停止")
+        return
     log(f"  [轮次用尽] 已达最大 {max_rounds} 轮")
 
 
