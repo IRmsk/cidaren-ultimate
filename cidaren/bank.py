@@ -116,13 +116,37 @@ def legacy_key_of(key: str) -> str | None:
     return None
 
 
+def _remark_of(key: str) -> str | None:
+    """从指纹 key 提取中文备注段（32/73 型题的稳定标识；题干占位/选项每次可能变化）。"""
+    parts = key.split("::")
+    if len(parts) == 5:
+        return parts[3]
+    if len(parts) >= 3:
+        return parts[2]
+    return None
+
+
 def bank_lookup(key: str, bank: dict):
-    """先查新格式 key，未命中再尝试旧格式（历史积累的题目指纹）。"""
+    """先查新格式 key，未命中再尝试旧格式，最后按 mode+remark 语义遍历兜底。
+
+    语义兜底解决：32/73 型题的题干下划线占位、选项顺序可能因服务端重刷而变化，
+    导致指纹失配；而中文短语（remark）每次固定，遍历同题型下同 remark 的已存答案。
+    """
     if key in bank:
         return bank[key]["ans"]
     legacy = legacy_key_of(key)
     if legacy and legacy in bank:
         return bank[legacy]["ans"]
+    parts = key.split("::")
+    mode = parts[0] if parts else ""
+    rem = _remark_of(key)
+    if mode and rem and len(rem) > 1:
+        needle = "::" + rem
+        for k, v in bank.items():
+            if not k.startswith(mode + "::"):
+                continue
+            if (needle + "::") in k or k.endswith(needle):
+                return v["ans"]
     return None
 
 

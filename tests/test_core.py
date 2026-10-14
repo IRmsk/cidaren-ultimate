@@ -80,6 +80,19 @@ class TestBank(unittest.TestCase):
         self.assertEqual(bank.bank_lookup(new_key, b), 0)
         legacy.unlink()
 
+    def test_bank_lookup_semantic_remark(self):
+        """32/73 型题语义兜底：题干占位/选项变化导致指纹失配时，按 mode+remark 仍能命中。"""
+        bank.bank_save({})
+        # 第 1 轮存下的旧格式 key：题干占位 + 中文 remark + 选项
+        bank.bank_add("32::norm::____的邮政包裹::邮政包裹::a|b|c", ["postal", "parcel"], "旧题干")
+        # 第 2 轮服务端重刷：题干占位变了、选项顺序变了，但中文 remark 不变
+        b = bank.bank_load()
+        new_key = "32::norm::_____的邮___包裹::邮政包裹::c|a|b"
+        self.assertEqual(bank.bank_lookup(new_key, b), ["postal", "parcel"])
+        # 跨题型不误命中（mode 不同）
+        other_key = "73::norm::____的邮政包裹::邮政包裹::a|b"
+        self.assertIsNone(bank.bank_lookup(other_key, b))
+
     def test_phrase_lib(self):
         bank.add_phrase("汉译", ["in,many,instances"])
         self.assertEqual(bank.lookup_phrase("汉译"), ["in,many,instances"])
