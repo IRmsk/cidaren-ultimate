@@ -42,6 +42,8 @@ CONFIG_FIELDS = [
     "DELAY_PER_QUESTION", "MAX_ROUNDS",
     # 防卡保护：单题超时秒数；USE_WORD_API=0 时禁用查词接口（弱网提速）
     "QUESTION_TIMEOUT", "USE_WORD_API",
+    # OCR 读图：off=关闭；llm=大模型视觉；tesseract=本地OCR；baidu=百度OCR
+    "OCR_MODE", "BAIDU_OCR_AK", "BAIDU_OCR_SK",
 ]
 
 DEFAULT_CONFIG = {
@@ -59,6 +61,9 @@ DEFAULT_CONFIG = {
     "MAX_ROUNDS": "10",
     "QUESTION_TIMEOUT": "60",
     "USE_WORD_API": "1",
+    "OCR_MODE": "off",
+    "BAIDU_OCR_AK": "",
+    "BAIDU_OCR_SK": "",
 }
 
 REQUIRED_AUTH_FIELDS = ("USERTOKEN",)
@@ -154,6 +159,11 @@ def save_runtime_config(payload: dict) -> dict:
         "# 防卡保护: 单题超时(秒); USE_WORD_API=0 禁用查词接口(弱网提速)",
         f"QUESTION_TIMEOUT={_format_env_value(merged.get('QUESTION_TIMEOUT', ''))}",
         f"USE_WORD_API={_format_env_value(merged.get('USE_WORD_API', ''))}",
+        "",
+        "# OCR 读图: off/llm/tesseract/baidu",
+        f"OCR_MODE={_format_env_value(merged.get('OCR_MODE', ''))}",
+        f"BAIDU_OCR_AK={_format_env_value(merged.get('BAIDU_OCR_AK', ''))}",
+        f"BAIDU_OCR_SK={_format_env_value(merged.get('BAIDU_OCR_SK', ''))}",
         "",
     ])
     ENV_FILE.write_text("\n".join(lines), encoding="utf-8")

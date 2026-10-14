@@ -60,9 +60,29 @@ python main.py            # 打开 http://localhost:5000
 
 ```bash
 python main.py check                            # 校验 token
+python main.py resume                           # 断点恢复：刷完所有未满分班级任务
 python main.py class <task_id> <release_id>     # 刷单个班级任务
 python main.py study <task_id> <list_id> [course_id] [task_type] [grade]
 ```
+
+## 替代方案
+
+- **Hamibot 无障碍脚本**（gaobobo/Hamibot-CidarenAuto）：安卓无障碍点击，完全不碰 API，适合怕封号的场景
+- **桌面免安装版**（chuyc11）：Windows 一键解压即用，无需 Python
+- **Electron 桌面助手**（YYY887）：内置抓包 + 系统托盘
+
+## 新功能（v2.0，全部整合自社区项目）
+
+| 功能 | 来源 | 说明 |
+|---|---|---|
+| **OCR 读图兜底** | xuhaoranbb/vocabgo-auto | 图片题干/选项自动识别：`OCR_MODE=llm`（大模型视觉）/ `tesseract` / `baidu` |
+| **断点恢复** | chuyc11 | Web 控制台「断点恢复」按钮 / `python main.py resume`，重启后继续所有未满分任务 |
+| **测试报告** | chuyc11 | 每题判分与来源统计（cache/rule/ai/blank/skip），Web 控制台「测试报告」查看 |
+| **mock server E2E 测试** | xuhaoranbb | 无真实账号也能验证答题引擎（`python -m unittest tests.test_e2e_mock`） |
+| **LLM 429 限速自动暂停** | YYY887 | 限速时按 Retry-After 等待，不盲猜提交 |
+| **防检测时长上报** | haojiezhe12345 | 每题上报 8-12s 学习时长，贴近真人 |
+| **内置抓包** | YYY887 | 由扫码登录替代（免抓包） |
+| **Hamibot 无障碍** | gaobobo | 备选方案，见文末「替代方案」 |
 
 ## Termux / 手机运行
 
@@ -89,6 +109,10 @@ python main.py
 | `AI_PRIORITY` | 1 = AI 优先，0 = 规则优先 |
 | `DELAY_PER_QUESTION` | 答题间隔秒数（≥2 防风控） |
 | `MAX_ROUNDS` | 未满分最大重刷轮数 |
+| `QUESTION_TIMEOUT` | 单题超时秒数，超时强制跳过（防卡死） |
+| `USE_WORD_API` | 1 = 查词接口辅助；0 = 禁用（弱网提速） |
+| `OCR_MODE` | off / llm / tesseract / baidu（图片题读图） |
+| `BAIDU_OCR_AK` / `BAIDU_OCR_SK` | 百度 OCR 凭据（OCR_MODE=baidu 时填） |
 
 ## 免责声明
 

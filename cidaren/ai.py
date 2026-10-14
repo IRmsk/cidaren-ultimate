@@ -140,9 +140,19 @@ def llm_answer(topic: dict, word_defs: dict = None, task_words: list = None, con
     url = _chat_completions_url(llm_url)
 
     last_err = None
-    for attempt in range(3):
+    rate_hits = 0
+    for attempt in range(4):
         try:
             resp = requests.post(url, headers=headers, json=data, timeout=(10, 60))
+            if resp.status_code == 429:
+                # LLM 限速：读 Retry-After，暂停后重试；连续多次则长暂停（YYY887 思路：限速不盲猜）
+                rate_hits += 1
+                import time as _t
+                retry_after = resp.headers.get("Retry-After")
+                wait = float(retry_after) if retry_after and retry_after.isdigit() else (5 + rate_hits * 10)
+                _t.sleep(wait)
+                last_err = f"429 限速, 等待{wait}s (第{rate_hits}次)"
+                continue
             resp.raise_for_status()
             if not resp.text.strip():
                 last_err = "空响应"
@@ -160,7 +170,7 @@ def llm_answer(topic: dict, word_defs: dict = None, task_words: list = None, con
             return parsed
         except (requests.Timeout, requests.ConnectionError) as e:
             last_err = str(e)
-            if attempt < 2:
+            if attempt < 3:
                 import time
                 time.sleep(1.5 * (attempt + 1))
                 continue

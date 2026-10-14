@@ -198,9 +198,14 @@ def run_one_round(ctx: TopicContext, task_id, release_id, log=print):
             log(f"  [完成] {done}/{total}")
             break
         topic = nt
-        # 节奏控制（Cidaren-AI 思路）
-        time.sleep(random.uniform(0.3, 0.8) if topic.get("topic_mode") == 0
-                   else random.uniform(1.0, 2.5))
+        # 节奏控制（Cidaren-AI 思路，DELAY_PER_QUESTION=0 时测试提速）
+        gap = max(0.0, as_int(ctx.config.get("DELAY_PER_QUESTION"), 2))
+        if gap <= 0:
+            time.sleep(random.uniform(0.02, 0.15))
+        elif topic.get("topic_mode") == 0:
+            time.sleep(random.uniform(0.3, 0.8))
+        else:
+            time.sleep(random.uniform(gap * 0.8, gap * 1.3))
 
     # 4. 签到
     try:

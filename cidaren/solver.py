@@ -17,6 +17,8 @@ import time
 import urllib.parse
 
 from . import bank as bk
+from . import ocr as ocr_mod
+from . import report as rp
 from .ai import llm_answer
 from .config import as_bool, as_int, get_runtime_config
 
@@ -614,6 +616,16 @@ def _learn_from_success(ctx, topic: dict, answer, mode, src):
             bk.add_words(word_zh, words)
 
 
+def _report(ctx, mode, src, ok, stem="", remark="", answer=""):
+    """写一条测试报告（task 维度聚合）。"""
+    try:
+        rp.report_add(rp.task_key(ctx.task_kind, getattr(ctx, "task_id", "?"),
+                                  getattr(ctx, "release_id", "?")),
+                      mode, src, ok, stem, remark, answer)
+    except Exception:
+        pass
+
+
 def _norm_corrects_answer(corrects, mode, stem) -> str:
     """把服务端 answer_corrects 统一成可提交的答案格式（easy + cidaren_ai 融合）。"""
     final_ans = corrects[0] if isinstance(corrects, list) else corrects
@@ -643,8 +655,9 @@ def _blank_probe(ctx, topic, key, stem, code, mode, logf):
     if resp0.get("code") == 1 and d0.get("answer_result") == 1:
         ctx.stats["ok"] += 1
         ctx.stats["blank"] += 1
+        _report(ctx, mode, "blank", 1, stem, "", "")
         logf("OK", "空白试探直接命中", " [blank]")
-        return _submit_next(ctx, new_code, random.randint(2000, 4000))
+        return _submit_next(ctx, new_code, random.randint(8000, 12000))
     c2 = d0.get("answer_corrects") or []
     if c2:
         ctx.stats["blank"] += 1
@@ -655,14 +668,17 @@ def _blank_probe(ctx, topic, key, stem, code, mode, logf):
         dv = rv.get("data") or {}
         if dv.get("answer_result") == 1:
             ctx.stats["ok"] += 1
+            _report(ctx, mode, "blank", 1, stem, "", ans2)
             logf("OK", _disp_answer(topic, ans2, mode), " [blank+fix]")
-            return _submit_next(ctx, dv.get("topic_code", new_code), random.randint(2000, 4000))
+            return _submit_next(ctx, dv.get("topic_code", new_code), random.randint(8000, 12000))
         ctx.stats["fail"] += 1
+        _report(ctx, mode, "skip", 0, stem, "", "")
         logf("SKIP", "纠错仍失败", " [skip]")
         return _submit_next(ctx, dv.get("topic_code", new_code), 20000)
 
     ctx.stats["skip"] += 1
     ctx.stats["fail"] += 1
+    _report(ctx, mode, "skip", 0, stem, "", "")
     logf("SKIP", "无解跳过", " [skip]")
     return _submit_next(ctx, code, 20000)
 
@@ -683,13 +699,20 @@ def solve_topic(ctx: TopicContext, topic: dict, log=lambda s: None):
     def logf(tag, text, extra=""):
         log(f"  [{mode:>2}] {tag} {str(text)[:42]}{extra}")
 
+    # ---------- OCR 读图兜底（图片题干/选项 -> 文字） ----------
+    try:
+        ocr_mod.topic_ocr(topic, ctx.config, log=log)
+    except Exception:
+        pass
+
     # ---------- mode 0：学习卡片，收集释义并跳过 ----------
     if mode == 0:
         word = stem.strip().lower()
         defs = [o.get("content", "") for o in opts if o.get("content")]
         if defs:
             ctx.word_defs[word] = defs
-        resp = _submit_next(ctx, topic["topic_code"], random.randint(500, 1500))
+        _report(ctx, mode, "card", 0, stem, remark, "")
+        resp = _submit_next(ctx, topic["topic_code"], random.randint(1000, 2500))
         return resp
 
     # ---------- 搭配题 mode 31（多选，循环 verify） ----------
@@ -743,17 +766,20 @@ def solve_topic(ctx: TopicContext, topic: dict, log=lambda s: None):
         bk.bank_add(key, answer, stem)
         if src not in ("cache", "blank"):
             _learn_from_success(ctx, topic, answer, mode, src)
+        _report(ctx, mode, src, 1, stem, remark, answer)
         logf("OK", _disp_answer(topic, answer, mode), f" [{src}]")
-        return _submit_next(ctx, code, random.randint(2000, 4000))
+        return _submit_next(ctx, code, random.randint(8000, 12000))
 
     # 判错：corrects 已入库，用 corrects 再提交
     if corrects:
         final_ans = _norm_corrects_answer(corrects, mode, stem)
         bk.bank_add(key, final_ans, stem)
+        _report(ctx, mode, "fix", 1, stem, remark, final_ans)
         logf("FIX", _disp_answer(topic, final_ans, mode), " [corrects]")
-        return _submit_next(ctx, code, random.randint(2000, 4000))
+        return _submit_next(ctx, code, random.randint(8000, 12000))
 
     # 答错且无纠错：也不猜，直接空白试探
+    _report(ctx, mode, src + "!wrong", 0, stem, remark, answer)
     return _blank_probe(ctx, topic, key, stem, code, mode, logf)
 
 
@@ -800,11 +826,13 @@ def _solve_collocation(ctx, topic, log, logf):
     if ok_tags:
         bk.bank_add(key, ok_tags, topic.get("stem", {}).get("content", ""))
         ctx.stats["ok"] += 1
+        _report(ctx, 31, src or "match", 1, topic.get("stem", {}).get("content", ""), "", ",".join(str(t) for t in ok_tags))
         logf("OK", ",".join(_disp_answer(topic, t, 31) for t in (ok_tags or chosen)), f" [{src}]")
     else:
         ctx.stats["skip"] += 1
+        _report(ctx, 31, "skip", 0, topic.get("stem", {}).get("content", ""), "", "")
         logf("SKIP", ",".join(_disp_answer(topic, t, 31) for t in chosen), f" [{src}]")
-    return _submit_next(ctx, cur_code, random.randint(2000, 4000))
+    return _submit_next(ctx, cur_code, random.randint(8000, 12000))
 
 
 def _verify_and_learn(ctx, topic, code, answer, mode, logf):

@@ -5,6 +5,7 @@ __main__.py — CLI 入口
   python -m cidaren class <task_id> <release_id>   # 刷单个班级任务
   python -m cidaren study <task_id> <list_id> <course_id> <task_type> <grade>
   python -m cidaren check              # 校验 token
+  python -m cidaren resume             # 断点恢复：刷完所有未满分班级任务
 """
 from __future__ import annotations
 
@@ -30,6 +31,39 @@ def main():
             print(f"Token 有效: {name}")
         else:
             print("Token 无效或已过期")
+        return
+    if args[0] == "resume":
+        """断点恢复：列出所有未满分班级任务并逐个刷（循环到满分）。"""
+        from .api import Client, ApiError
+        from .config import get_missing_auth_fields, get_runtime_config
+        from .runner import run_full
+        cfg = get_runtime_config()
+        missing = get_missing_auth_fields(cfg)
+        if missing:
+            raise SystemExit(f"缺少必要配置: {', '.join(missing)}")
+        client = Client(cfg["USERTOKEN"], cfg.get("ABC", ""), cfg.get("AUTH_V", ""))
+        tasks, page = [], 1
+        while page <= 20:
+            resp = client.page_task(page=page, size=50)
+            recs = (resp.get("data") or {}).get("records") or []
+            if not recs:
+                break
+            tasks.extend(recs)
+            if len(recs) < 50:
+                break
+            page += 1
+        todo = [t for t in tasks if t.get("score", 0) < 100]
+        if not todo:
+            print("没有未完成的任务，全部已满分。")
+            return
+        print(f"待续任务 {len(todo)} 个，开始逐个刷满...")
+        for i, t in enumerate(todo, 1):
+            print(f"\n===== [{i}/{len(todo)}] {t.get('task_name')} =====")
+            try:
+                run_full(client, t.get("task_id"), t.get("release_id"), config=cfg,
+                         task_type=t.get("task_type") or 1)
+            except (ApiError, Exception) as e:
+                print(f"任务异常: {e}")
         return
     if args[0] == "class":
         from .api import Client

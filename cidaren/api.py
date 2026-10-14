@@ -16,9 +16,10 @@ import requests
 from .crypto import SALT, decrypt_response, md5, sign
 
 VERSION = "2.7.0.260507_01"
-BASE = "https://app.vocabgo.com/studentv1/api"
+# 支持 CIDAREN_API_BASE / CIDAREN_STUDENT_API 环境变量覆盖（mock server 测试用）
+BASE = os.environ.get("CIDAREN_API_BASE", "https://app.vocabgo.com/studentv1/api")
 # easy_cidaren 的查词接口路径
-STUDENT_API = "https://app.vocabgo.com/student/api/Student"
+STUDENT_API = os.environ.get("CIDAREN_STUDENT_API", "https://app.vocabgo.com/student/api/Student")
 
 DEFAULT_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -65,7 +66,8 @@ class Client:
         self.s.headers.update(headers)
 
     # ---- 基础请求 ----
-    def _get(self, path: str, params: dict, base: str = BASE, retries: int = 2):
+    def _get(self, path: str, params: dict, base: str = None, retries: int = 2):
+        base = base or BASE  # 运行时取值，支持 mock 测试注入
         params = {**params, "timestamp": _ms(), "version": VERSION, "app_type": 1}
         last = None
         for attempt in range(retries):
@@ -79,7 +81,8 @@ class Client:
                     continue
         raise ApiError(f"GET {path} 网络失败: {last}")
 
-    def _post(self, path: str, body: dict, base: str = BASE, retries: int = 2):
+    def _post(self, path: str, body: dict, base: str = None, retries: int = 2):
+        base = base or BASE  # 运行时取值，支持 mock 测试注入
         body = {**body, "timestamp": _ms(), "version": VERSION}
         body["sign"] = sign(body)
         body["app_type"] = 1

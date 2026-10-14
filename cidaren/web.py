@@ -19,6 +19,7 @@ from collections import deque
 from flask import Flask, jsonify, request, Response
 
 from . import bank as bk
+from . import report as rp
 from .config import (
     build_subprocess_env,
     env_file_path,
@@ -380,6 +381,21 @@ def api_stop():
     return jsonify({"ok": True})
 
 
+@app.route("/api/reports")
+def api_reports():
+    return jsonify({"ok": True, "reports": rp.list_reports()})
+
+
+@app.route("/api/report")
+def api_report_detail():
+    key = request.args.get("key", "")
+    if not key:
+        return jsonify({"ok": False, "error": "缺少 key"}), 400
+    stats = rp.report_stats(key)
+    recs = rp.report_load(key)[-200:]
+    return jsonify({"ok": True, "stats": stats, "recs": recs})
+
+
 @app.route("/api/logs")
 def api_logs_query():
     source = request.args.get("source") or "class"
@@ -547,6 +563,21 @@ _INDEX_HTML = r'''<!doctype html>
             <input id="USE_WORD_API" type="text" placeholder="1" />
             <small>1 = 用查词接口辅助答题；0 = 禁用（弱网提速，纯题库+AI+试探）。</small>
           </div>
+          <div class="field">
+            <label for="OCR_MODE">OCR_MODE</label>
+            <input id="OCR_MODE" type="text" placeholder="off" />
+            <small>图片题干/选项读图：off / llm（大模型视觉）/ tesseract（本地）/ baidu（百度OCR）。</small>
+          </div>
+          <div class="field">
+            <label for="BAIDU_OCR_AK">BAIDU_OCR_AK</label>
+            <input id="BAIDU_OCR_AK" type="text" placeholder="" />
+            <small>百度 OCR API Key（OCR_MODE=baidu 时填）。</small>
+          </div>
+          <div class="field">
+            <label for="BAIDU_OCR_SK">BAIDU_OCR_SK</label>
+            <input id="BAIDU_OCR_SK" type="password" placeholder="" />
+            <small>百度 OCR Secret Key。</small>
+          </div>
         </div>
         <div class="bar" style="margin-top:18px; margin-bottom:0; justify-content:space-between;">
           <div id="env-path" class="status-box">.env 路径加载中...</div>
@@ -561,13 +592,14 @@ _INDEX_HTML = r'''<!doctype html>
 
     <section class="card">
       <div class="card-head">
-        <div><h2>任务面板</h2><p>子进程执行刷题流程，日志实时查看。</p></div>
+        <div><h2>任务面板</h2><p>子进程执行刷题流程，日志实时查看。重启程序后点「断点恢复」继续所有未完成。</p></div>
         <div class="status-box">分数每 5 秒自动刷新</div>
       </div>
       <div class="card-body">
         <div class="bar">
           <button onclick="loadTasks()">刷新任务</button>
-          <button class="loop" onclick="startAllClassLoop()">一键启动全部班级循环</button>
+          <button class="loop" onclick="startAllClassLoop()">断点恢复（继续未完成）</button>
+          <button onclick="loadReports()">测试报告</button>
           <span id="status">加载中...</span>
         </div>
         <table>
@@ -578,6 +610,14 @@ _INDEX_HTML = r'''<!doctype html>
           <tbody id="tbody"></tbody>
         </table>
       </div>
+    </section>
+
+    <section class="card" id="report-card" style="display:none;">
+      <div class="card-head">
+        <div><h2>测试报告</h2><p>每题判分与来源统计（按任务聚合，越刷越有参考价值）。</p></div>
+        <button onclick="loadReports()">刷新</button>
+      </div>
+      <div class="card-body" id="report-body"><div style="color:#667085;">加载中...</div></div>
     </section>
   </div>
 
@@ -603,7 +643,7 @@ let activeLogKey = null;
 let logTimer = null;
 let currentTasks = [];
 let qrTimer = null;
-const CONFIG_KEYS = ["USERTOKEN","ABC","AUTH_V","COURSE_ID","STUDY_GRADE","LLM_URL","LLM_KEY","LLM_MODEL","LLM_MAX_TOKENS","AI_PRIORITY","DELAY_PER_QUESTION","MAX_ROUNDS","QUESTION_TIMEOUT","USE_WORD_API"];
+const CONFIG_KEYS = ["USERTOKEN","ABC","AUTH_V","COURSE_ID","STUDY_GRADE","LLM_URL","LLM_KEY","LLM_MODEL","LLM_MAX_TOKENS","AI_PRIORITY","DELAY_PER_QUESTION","MAX_ROUNDS","QUESTION_TIMEOUT","USE_WORD_API","OCR_MODE","BAIDU_OCR_AK","BAIDU_OCR_SK"];
 
 async function loadConfig() {
   try {
@@ -786,8 +826,59 @@ async function stopTask(index) {
   loadTasks();
 }
 
+async function loadReports() {
+  try {
+    const r = await fetch("/api/reports");
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || "读取失败");
+    const card = document.getElementById("report-card");
+    card.style.display = "";
+    const body = document.getElementById("report-body");
+    if (!j.reports.length) {
+      body.innerHTML = '<div style="color:#667085;">暂无报告，刷过题之后这里会显示每题判分统计。</div>';
+      return;
+    }
+    body.innerHTML = `<table><thead><tr>
+      <th>任务</th><th>总题</th><th>答对</th><th>跳过</th><th>正确率</th><th>来源分布</th><th style="width:70px">明细</th>
+    </tr></thead><tbody>${
+      j.reports.map((s, i) => {
+        const dist = Object.entries(s.src_dist || {}).map(([k, v]) => `${k}:${v}`).join(" · ");
+        return `<tr>
+          <td>${escapeHtml(s.key)}</td>
+          <td>${s.total}</td><td>${s.ok}</td><td>${s.skip}</td>
+          <td style="color:${s.accuracy >= 90 ? "#34c759" : s.accuracy >= 60 ? "#ff9500" : "#ff3b30"}; font-weight:600">${s.accuracy}%</td>
+          <td style="font-size:12px;color:#667085;">${escapeHtml(dist)}</td>
+          <td><button onclick="showReportDetail('${escapeHtml(s.key)}')">查看</button></td>
+        </tr>`;
+      }).join("")
+    }</tbody></table>`;
+  } catch (e) {
+    alert("报告读取失败: " + e.message);
+  }
+}
+
+async function showReportDetail(key) {
+  const r = await fetch(`/api/report?key=${encodeURIComponent(key)}`);
+  const j = await r.json();
+  if (!j.ok) { alert(j.error); return; }
+  const st = j.stats;
+  const dist = Object.entries(st.src_dist || {}).map(([k, v]) => `${k}:${v}`).join(" · ");
+  const rows = (j.recs || []).slice(-50).reverse().map((rec) => {
+    const tag = rec.ok ? '<span style="color:#34c759">OK</span>' : '<span style="color:#ff3b30">✗</span>';
+    return `<tr><td style="font-size:11px;color:#666">${rec.mode}</td><td>${escapeHtml(rec.src)}</td><td>${tag}</td><td style="font-size:12px">${escapeHtml(rec.stem)}</td><td style="font-size:12px;color:#667085">${escapeHtml(rec.remark)}</td></tr>`;
+  }).join("");
+  alert(`[${st.key}] 共${st.total}题 · 对${st.ok} · 正确率${st.accuracy}%
+来源: ${dist}`);
+  if (rows) {
+    const card = document.getElementById("report-card");
+    const body = document.getElementById("report-body");
+    body.innerHTML = `<div class="bar" style="margin-bottom:10px;"><button onclick="loadReports()">← 返回列表</button><span>最近 50 条明细</span></div>` +
+      `<table><thead><tr><th>题型</th><th>来源</th><th>结果</th><th>题干</th><th>备注</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+}
+
 async function startAllClassLoop() {
-  if (!confirm("确定要一键启动所有班级任务循环（刷到满分）？")) return;
+  if (!confirm("断点恢复：启动所有未满分班级任务（跳过运行中/已满分）？")) return;
   const r = await fetch("/api/start_all", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
   const j = await r.json();
   if (!j.ok) { alert("启动失败: " + j.error); return; }
@@ -832,7 +923,7 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 
-loadConfig().then(loadTasks);
+loadConfig().then(loadTasks).then(loadReports);
 setInterval(loadTasks, 5000);
 </script>
 </body>
