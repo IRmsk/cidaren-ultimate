@@ -181,3 +181,65 @@ def llm_answer(topic: dict, word_defs: dict = None, task_words: list = None, con
             last_err = str(e)
             continue
     return None
+
+
+def test_llm_connectivity(llm_url: str, llm_key: str,
+                          llm_model: str = "deepseek-chat",
+                          max_tokens: int = 32) -> dict:
+    """测试 LLM 接口连通性：发一个最小请求并返回结构化结果。
+
+    用于 Web 控制台「测试 AI 连接」按钮（表单当前值即可测，无需先保存）。
+    返回 {"ok": bool, "latency_ms": int, "reply": str, "error": str}，不抛异常。
+    """
+    llm_url = (llm_url or "").strip()
+    llm_key = (llm_key or "").strip()
+    llm_model = (llm_model or "deepseek-chat").strip() or "deepseek-chat"
+    if not llm_url:
+        return {"ok": False, "latency_ms": 0, "reply": "", "error": "未填写 LLM_URL"}
+    if not llm_key:
+        return {"ok": False, "latency_ms": 0, "reply": "", "error": "未填写 LLM_KEY"}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {llm_key}",
+    }
+    data = {
+        "model": llm_model,
+        "messages": [{"role": "user", "content": "只回复两个字：正常"}],
+        "max_tokens": max_tokens,
+        "temperature": 0.1,
+    }
+    url = _chat_completions_url(llm_url)
+    import time
+    t0 = time.time()
+    try:
+        resp = requests.post(url, headers=headers, json=data, timeout=(10, 30))
+        latency = int((time.time() - t0) * 1000)
+        if resp.status_code == 401 or resp.status_code == 403:
+            return {"ok": False, "latency_ms": latency, "reply": "",
+                    "error": f"HTTP {resp.status_code} 鉴权失败，Key 无效或无权访问该模型"}
+        if resp.status_code == 429:
+            return {"ok": False, "latency_ms": latency, "reply": "",
+                    "error": "HTTP 429 触发限速，稍后再试"}
+        if resp.status_code != 200:
+            return {"ok": False, "latency_ms": latency, "reply": "",
+                    "error": f"HTTP {resp.status_code}: {resp.text[:120]}"}
+        rj = resp.json()
+        choices = rj.get("choices") or []
+        content = (choices[0].get("message") or {}).get("content", "") if choices else ""
+        if not choices:
+            return {"ok": False, "latency_ms": latency, "reply": "",
+                    "error": f"响应缺少 choices: {str(rj)[:120]}"}
+        return {"ok": True, "latency_ms": latency,
+                "reply": content.strip()[:60] or "（空回复）", "error": ""}
+    except requests.Timeout:
+        return {"ok": False, "latency_ms": int((time.time() - t0) * 1000),
+                "reply": "", "error": "连接超时（10s/30s），检查 LLM_URL 或网络"}
+    except requests.ConnectionError as e:
+        return {"ok": False, "latency_ms": int((time.time() - t0) * 1000),
+                "reply": "", "error": f"无法连接: {str(e)[:120]}"}
+    except ValueError as e:
+        return {"ok": False, "latency_ms": int((time.time() - t0) * 1000),
+                "reply": "", "error": f"响应不是合法 JSON: {str(e)[:120]}"}
+    except Exception as e:
+        return {"ok": False, "latency_ms": int((time.time() - t0) * 1000),
+                "reply": "", "error": str(e)[:120]}

@@ -30,6 +30,7 @@ from flask import Flask, jsonify, request, Response
 
 from . import bank as bk
 from . import report as rp
+from . import ai as ai_mod
 from .config import (
     build_subprocess_env,
     env_file_path,
@@ -294,6 +295,22 @@ def api_save_config():
         "missing_auth": get_missing_auth_fields(saved),
         "stats": bk.lib_stats(),
     })
+
+
+@app.route("/api/test_llm", methods=["POST"])
+def api_test_llm():
+    """测试 AI 接口可用性：用表单当前值（未保存也能测）发一个最小请求。
+
+    参数缺省回退到 .env 已保存配置；返回 {"ok", "latency_ms", "reply", "error"}。
+    """
+    body = request.get_json(force=True) or {}
+    cfg = get_runtime_config()
+    llm_url = (body.get("llm_url") or cfg.get("LLM_URL") or "").strip()
+    llm_key = (body.get("llm_key") or cfg.get("LLM_KEY") or "").strip()
+    llm_model = (body.get("llm_model") or cfg.get("LLM_MODEL") or "").strip()
+    max_tokens = body.get("llm_max_tokens") or cfg.get("LLM_MAX_TOKENS") or 32
+    result = ai_mod.test_llm_connectivity(llm_url, llm_key, llm_model, max_tokens)
+    return jsonify(result)
 
 
 @app.route("/api/tasks")
@@ -593,6 +610,11 @@ _INDEX_HTML = r'''<!doctype html>
     .field input:focus { outline: 2px solid rgba(0,122,255,.25); border-color: var(--primary); }
     .field small { color: var(--muted); font-size: 12px; line-height: 1.5; }
 
+    /* LLM 连接测试结果：ok 绿 / fail 红，小字就地显示 */
+    .llm-test-result { font-size: 12px; line-height: 1.5; color: var(--muted); }
+    .llm-test-result.ok { color: #027a48; }
+    .llm-test-result.fail { color: #d92d20; }
+
     /* ============================================================
        5. 状态徽章 / 统计胶囊
        ============================================================ */
@@ -774,6 +796,10 @@ _INDEX_HTML = r'''<!doctype html>
             <label for="LLM_KEY">LLM_KEY</label>
             <input id="LLM_KEY" type="password" autocomplete="off" />
             <small>API Key。</small>
+            <div class="llm-test-row" style="margin-top:6px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <button type="button" onclick="testLLM()">测试 AI 连接</button>
+              <span id="llm-test-result" class="llm-test-result"></span>
+            </div>
           </div>
           <div class="field">
             <label for="LLM_MAX_TOKENS">LLM_MAX_TOKENS</label>
@@ -953,6 +979,38 @@ function renderStats(stats) {
   if (!stats) return;
   document.getElementById("stats-box").textContent =
     `答案库: 题库 ${stats.bank} · 短语 ${stats.phrase} · 单词 ${stats.word} · 词表 ${stats.pool} · 词典 ${stats.dict}`;
+}
+
+/**
+ * testLLM — 用表单当前 LLM 配置（无需先保存）发一个最小请求，验证 AI 接口可用性。
+ * 结果就地显示：成功绿字（含延迟与模型回复），失败红字（含具体原因）。
+ */
+async function testLLM() {
+  const box = document.getElementById("llm-test-result");
+  box.textContent = "测试中，请稍候...";
+  box.className = "llm-test-result";
+  try {
+    const r = await fetch("/api/test_llm", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        llm_url: document.getElementById("LLM_URL").value.trim(),
+        llm_key: document.getElementById("LLM_KEY").value.trim(),
+        llm_model: document.getElementById("LLM_MODEL").value.trim(),
+        llm_max_tokens: document.getElementById("LLM_MAX_TOKENS").value.trim(),
+      }),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      box.textContent = `✅ 连接成功 ${j.latency_ms}ms · 模型回复: ${j.reply}`;
+      box.className = "llm-test-result ok";
+    } else {
+      box.textContent = `❌ ${j.error}`;
+      box.className = "llm-test-result fail";
+    }
+  } catch (e) {
+    box.textContent = `❌ 请求失败: ${e.message}`;
+    box.className = "llm-test-result fail";
+  }
 }
 
 /**
