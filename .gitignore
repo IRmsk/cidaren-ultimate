@@ -1,0 +1,19 @@
+# 环境配置（含 token，禁止入库）
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 本地答案库（个人累积数据）
+cidaren/data/*.json
+
+# 工具/系统
+.DS_Store
+*.log
+repos/
