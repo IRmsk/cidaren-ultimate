@@ -208,10 +208,12 @@ def run_one_round(ctx: TopicContext, task_id, release_id, log=print):
         else:
             time.sleep(random.uniform(gap * 0.8, gap * 1.3))
 
-    # 4. 轮末汇总：本轮答对/跳过/来源分布（告诉用户哪些题没做、靠谁答的）
+    # 4. 轮末汇总：本轮答对/首错/跳过/来源分布
+    #    注意：答对 ok 包含"先答错再用服务端答案纠正(FIX)"的题；
+    #    首错 wrong = 第一次提交就被判错的题数（服务端计分按首次判定，这类题纠正后也不加分）
     try:
         delta = {k: ctx.stats[k] - stats0.get(k, 0) for k in ctx.stats}
-        log(f"  [轮报] 答对 {delta.get('ok', 0)} · 答错 {delta.get('fail', 0)} · "
+        log(f"  [轮报] 答对 {delta.get('ok', 0)} · 首错 {delta.get('wrong', 0)} · "
             f"跳过 {delta.get('skip', 0)} · 来源: 题库 {delta.get('cache', 0)} · "
             f"规则 {delta.get('rule', 0)} · AI {delta.get('ai', 0)} · 试探 {delta.get('blank', 0)}")
     except Exception:
@@ -255,7 +257,8 @@ def run_full(client, task_id, release_id, config=None, log=print, task_type=1):
         prev_score = score
         if stuck >= 2:
             sk = ctx.stats.get("skip", 0)
-            log(f"  [卡住] 连续 {stuck} 轮分数未提升 ({score}分)，累计跳过 {sk} 题，放弃该任务")
+            wr = ctx.stats.get("wrong", 0)
+            log(f"  [卡住] 连续 {stuck} 轮分数未提升 ({score}分)，累计首错 {wr} 题/跳过 {sk} 题，放弃该任务")
             return
         if round_num < max_rounds:
             # 重置重刷
@@ -275,7 +278,8 @@ def run_full(client, task_id, release_id, config=None, log=print, task_type=1):
             return
         # max_rounds 用完仍未满分：明确告知放弃原因
         sk = ctx.stats.get("skip", 0)
-        log(f"  [放弃] 已刷满 {max_rounds} 轮仍未满分 ({score}分)，累计跳过 {sk} 题，任务停止")
+        wr = ctx.stats.get("wrong", 0)
+        log(f"  [放弃] 已刷满 {max_rounds} 轮仍未满分 ({score}分)，累计首错 {wr} 题/跳过 {sk} 题，任务停止")
         return
     log(f"  [轮次用尽] 已达最大 {max_rounds} 轮")
 

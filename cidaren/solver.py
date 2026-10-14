@@ -586,7 +586,7 @@ class TopicContext:
         self.word_list = []           # 当前单元单词（easy 判词依赖）
         self.word_dict = {}           # word_zh -> word（跨单元累积，mode 73 全局池）
         self.word_defs = {}           # word -> [释义]（学习卡片 + 查词缓存）
-        self.stats = {"ok": 0, "fail": 0, "skip": 0, "cache": 0, "rule": 0, "ai": 0, "blank": 0}
+        self.stats = {"ok": 0, "fail": 0, "wrong": 0, "skip": 0, "cache": 0, "rule": 0, "ai": 0, "blank": 0}
 
     @property
     def is_study(self) -> bool:
@@ -890,8 +890,11 @@ def _verify_and_learn(ctx, topic, code, answer, mode, logf):
     ar = vd.get("answer_result")
     corrects = vd.get("answer_corrects") or []
     over = vd.get("over_status")
-    if ar != 1 and corrects:
-        _learn_from_corrects(ctx, topic, corrects)
+    if ar != 1:
+        # 首次判定即错：即使后面用 corrects 纠正成功，这题的分也已经丢了
+        ctx.stats["wrong"] += 1
+        if corrects:
+            _learn_from_corrects(ctx, topic, corrects)
     return new_code, ar, corrects, over
 
 
