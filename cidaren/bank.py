@@ -17,6 +17,9 @@ from pathlib import Path
 DATA_DIR = Path(__file__).resolve().parent / "data"
 BANK_FILE = DATA_DIR / "bank.json"
 ANSWER_LIB_FILE = DATA_DIR / "answer_lib.json"
+WORD_POOL_FILE = DATA_DIR / "word_pool.json"
+# 从 LangQi99/cidaren 偷来的旧格式题库（key = mode::stem::remark，3 段）
+BANK_LEGACY_FILE = DATA_DIR / "bank_legacy.json"
 WORD_KEY = "_word_answers"
 
 _lock = threading.Lock()
@@ -79,7 +82,13 @@ def _read_json(path: Path) -> dict:
 # ---- 题库（题目指纹缓存）----
 
 def bank_load() -> dict:
-    return _read_json(BANK_FILE)
+    """合并新格式 bank.json + 偷来的旧格式 bank_legacy.json（LangQi99 3段key）。"""
+    bank = _read_json(BANK_FILE)
+    legacy = _read_json(BANK_LEGACY_FILE)
+    for k, v in legacy.items():
+        if k not in bank and isinstance(v, dict) and "ans" in v:
+            bank[k] = v
+    return bank
 
 
 def bank_save(bank: dict):
@@ -93,6 +102,29 @@ def bank_add(key: str, ans, stem: str = ""):
         bank = bank_load()
         bank[key] = {"ans": ans, "stem": stem}
         bank_save(bank)
+
+
+def legacy_key_of(key: str) -> str | None:
+    """把新格式 key (mode::kind::sn::remark::opts) 转成旧格式 (mode::sn::remark) 用于查偷来的题库。"""
+    parts = key.split("::")
+    if len(parts) == 5:
+        return f"{parts[0]}::{parts[2]}::{parts[3]}"
+    return None
+
+
+def bank_lookup(key: str, bank: dict):
+    """先查新格式 key，未命中再尝试旧格式（LangQi99 偷来的 1918 条）。"""
+    if key in bank:
+        return bank[key]["ans"]
+    legacy = legacy_key_of(key)
+    if legacy and legacy in bank:
+        return bank[legacy]["ans"]
+    return None
+
+
+def load_word_pool() -> dict:
+    """加载偷来的全局词表（easy word_pool.json: word_zh -> URL编码英文短语）。"""
+    return _read_json(WORD_POOL_FILE)
 
 
 # ---- 短语/单词答案库（easy_cidaren 格式）----
@@ -181,4 +213,5 @@ def lib_stats() -> dict:
         "bank": len(bank),
         "phrase": len([k for k in lib if k != WORD_KEY]),
         "word": len(words) if isinstance(words, dict) else 0,
+        "pool": len(load_word_pool()),
     }

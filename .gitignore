@@ -10,8 +10,10 @@ __pycache__/
 .venv/
 venv/
 
-# 本地答案库（个人累积数据）
-cidaren/data/*.json
+# 本地运行时累积的题库（个人数据，不入库）
+cidaren/data/bank.json
+cidaren/data/*.lock
+cidaren/data/*.tmp
 
 # 工具/系统
 .DS_Store

@@ -627,7 +627,7 @@ function renderConfigStatus(missing) {
 function renderStats(stats) {
   if (!stats) return;
   document.getElementById("stats-box").textContent =
-    `答案库: 题库 ${stats.bank} · 短语 ${stats.phrase} · 单词 ${stats.word}`;
+    `答案库: 题库 ${stats.bank} · 短语 ${stats.phrase} · 单词 ${stats.word} · 词表 ${stats.pool}`;
 }
 
 async function saveConfig(refreshTasks) {

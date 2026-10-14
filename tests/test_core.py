@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -53,9 +54,11 @@ class TestCrypto(unittest.TestCase):
 class TestBank(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        bank.DATA_DIR = __import__("pathlib").Path(self._tmp.name)
-        bank.BANK_FILE = bank.DATA_DIR / "bank.json"
-        bank.ANSWER_LIB_FILE = bank.DATA_DIR / "answer_lib.json"
+        tmp = Path(self._tmp.name)
+        # 全部文件常量重定向到临时目录，严禁触碰真实 data/
+        for attr in ("DATA_DIR", "BANK_FILE", "ANSWER_LIB_FILE", "WORD_POOL_FILE", "BANK_LEGACY_FILE"):
+            if hasattr(bank, attr):
+                setattr(bank, attr, tmp / Path(getattr(bank, attr)).name)
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -63,6 +66,19 @@ class TestBank(unittest.TestCase):
     def test_bank_roundtrip(self):
         bank.bank_add("1::a::b::c", 2, "stem")
         self.assertEqual(bank.bank_load()["1::a::b::c"]["ans"], 2)
+
+    def test_bank_lookup_legacy(self):
+        # 模拟偷来的 LangQi99 旧格式题库（3 段 key）
+        bank.bank_save({})
+        legacy = bank.BANK_LEGACY_FILE
+        import json as _json
+        legacy.write_text(_json.dumps({
+            "11::he is a man who will spoil rather than {accomplish} things.::vt. 完成|vt. 使": {"ans": 0, "stem": ""}
+        }), encoding="utf-8")
+        new_key = "11::norm::he is a man who will spoil rather than {accomplish} things.::vt. 完成|vt. 使::opts"
+        b = bank.bank_load()
+        self.assertEqual(bank.bank_lookup(new_key, b), 0)
+        legacy.unlink()
 
     def test_phrase_lib(self):
         bank.add_phrase("汉译", ["in,many,instances"])

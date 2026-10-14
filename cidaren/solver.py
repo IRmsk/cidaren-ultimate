@@ -14,6 +14,7 @@ import json
 import random
 import re
 import time
+import urllib.parse
 
 from . import bank as bk
 from .ai import llm_answer
@@ -149,17 +150,17 @@ def _word_revert_api(ctx, word: str) -> str:
 
 
 def _match_phrase_by_word_zh(ctx, word_zh: str) -> str | None:
-    """按中文释义反查词表中的英文短语（easy 思路，术语课程用）。"""
+    """按中文释义反查词表中的英文短语（easy 思路，术语课程用）。兼容 word_pool 的 URL 编码值。"""
     word_map = ctx.word_dict or {}
     if not word_map:
         return None
     if word_zh in word_map:
-        return word_map[word_zh]
+        return urllib.parse.unquote(word_map[word_zh])
     pattern = re.compile(r'[\s（）()“”"\'‘’《》]')
     nm = pattern.sub("", word_zh)
     for zh, en in word_map.items():
         if pattern.sub("", zh) == nm:
-            return en
+            return urllib.parse.unquote(en)
     return None
 
 
@@ -561,7 +562,13 @@ def _learn_from_corrects(ctx, topic: dict, corrects):
     if not word_zh or not corrects:
         return
     if mode == 32:
-        bk.add_phrase(word_zh, [c for c in corrects if isinstance(c, str)])
+        # 统一存空格分隔的完整短语（answer_lib 格式），方便 _build_phrase_answer 复用
+        if isinstance(corrects, list):
+            phrase = " ".join(str(c) for c in corrects if isinstance(c, str))
+            if phrase:
+                bk.add_phrase(word_zh, [phrase])
+        else:
+            bk.add_phrase(word_zh, [str(corrects)])
     elif mode in (42, 73):
         opts = _opts(topic)
         words = []
@@ -574,13 +581,86 @@ def _learn_from_corrects(ctx, topic: dict, corrects):
             bk.add_words(word_zh, words)
 
 
-def _guess_answer(topic: dict) -> int:
-    """盲猜：选择题猜 0，组词题猜第一个选项内容。"""
-    mode = topic.get("topic_mode")
-    if mode == 32:
-        opts = _opt_contents(topic)
-        return opts[0] if opts else "0"
-    return 0
+def _learn_from_success(ctx, topic: dict, answer, mode, src):
+    """
+    AI/规则答对后自动上传题库（用户要求：没见过的题 AI 答对就入库）。
+    - 题目指纹 bank 由调用方统一写入
+    - mode 32 答对：把逗号分隔的答案转空格分隔，写入短语库
+    - mode 73 答对：AI 返回的 JSON 单词数组写入单词库
+    """
+    word_zh = (topic.get("stem") or {}).get("remark", "")
+    if not word_zh:
+        return
+    if mode == 32 and isinstance(answer, str):
+        phrase = answer.replace(",", " ")
+        if phrase:
+            bk.add_phrase(word_zh, [phrase])
+    elif mode == 73:
+        words = []
+        if isinstance(answer, list):
+            words = [str(w) for w in answer if isinstance(w, str)]
+        elif isinstance(answer, str):
+            try:
+                arr = json.loads(answer)
+                if isinstance(arr, list):
+                    words = [str(w) for w in arr]
+            except (ValueError, TypeError):
+                words = [w.strip() for w in answer.split(",") if w.strip()]
+        if words:
+            bk.add_words(word_zh, words)
+
+
+def _norm_corrects_answer(corrects, mode, stem) -> str:
+    """把服务端 answer_corrects 统一成可提交的答案格式（easy + cidaren_ai 融合）。"""
+    final_ans = corrects[0] if isinstance(corrects, list) else corrects
+    if mode == 32 and isinstance(final_ans, str):
+        words = final_ans.split()
+        blank_count = stem.count("_")
+        if len(words) < blank_count:
+            expanded = []
+            for w in words:
+                expanded.extend(w.split("-") if "-" in w else [w])
+            words = expanded
+        return ",".join(words) if len(words) > 1 else final_ans
+    if mode == 73 and isinstance(corrects, list):
+        return json.dumps([str(c) for c in corrects])
+    return final_ans
+
+
+def _blank_probe(ctx, topic, key, stem, code, mode, logf):
+    """
+    空白试探（Cidaren-AI 思路）：题库/AI/规则都答不上时，提交空答案让服务端返回标准答案。
+    不盲猜——拿不到标准答案就跳过，宁缺毋滥。
+    """
+    blank = "" if mode != 73 else json.dumps([""] * max(stem.count("{"), 1))
+    resp0 = _verify(ctx, code, blank)
+    d0 = resp0.get("data") or {}
+    new_code = d0.get("topic_code", code)
+    if resp0.get("code") == 1 and d0.get("answer_result") == 1:
+        ctx.stats["ok"] += 1
+        ctx.stats["blank"] += 1
+        logf("OK", "空白试探直接命中", " [blank]")
+        return _submit_next(ctx, new_code, random.randint(2000, 4000))
+    c2 = d0.get("answer_corrects") or []
+    if c2:
+        ctx.stats["blank"] += 1
+        _learn_from_corrects(ctx, topic, c2)
+        ans2 = _norm_corrects_answer(c2, mode, stem)
+        bk.bank_add(key, ans2, stem)
+        rv = _verify(ctx, new_code, ans2)
+        dv = rv.get("data") or {}
+        if dv.get("answer_result") == 1:
+            ctx.stats["ok"] += 1
+            logf("OK", _disp_answer(topic, ans2, mode), " [blank+fix]")
+            return _submit_next(ctx, dv.get("topic_code", new_code), random.randint(2000, 4000))
+        ctx.stats["fail"] += 1
+        logf("SKIP", "纠错仍失败", " [skip]")
+        return _submit_next(ctx, dv.get("topic_code", new_code), 20000)
+
+    ctx.stats["skip"] += 1
+    ctx.stats["fail"] += 1
+    logf("SKIP", "无解跳过", " [skip]")
+    return _submit_next(ctx, code, 20000)
 
 
 def solve_topic(ctx: TopicContext, topic: dict, log=lambda s: None):
@@ -617,9 +697,9 @@ def solve_topic(ctx: TopicContext, topic: dict, log=lambda s: None):
     answer = None
     src = None
 
-    # 1. 题库指纹缓存
-    if key in ctx.bank:
-        cached = ctx.bank[key]["ans"]
+    # 1. 题库指纹缓存（新格式 + 偷来的旧格式双查）
+    cached = bk.bank_lookup(key, ctx.bank)
+    if cached is not None:
         answer = list(cached) if isinstance(cached, list) else cached
         src = "cache"
         ctx.stats["cache"] += 1
@@ -645,10 +725,10 @@ def solve_topic(ctx: TopicContext, topic: dict, log=lambda s: None):
             src = "llm"
             ctx.stats["ai"] += 1
 
-    # 5. 盲猜兜底（先给出一个答案去 verify，错则走空白试探纠错）
+    # 5. 题库/AI/规则都答不上：不盲猜，直接空白试探拿标准答案
     if answer is None:
-        answer = _guess_answer(topic)
-        src = "guess"
+        logf("?", "题库/AI/规则均无解，转空白试探", " [probe]")
+        return _blank_probe(ctx, topic, key, stem, code, mode, logf)
 
     logf("?", "答题", f" [{src}]")
 
@@ -657,67 +737,20 @@ def solve_topic(ctx: TopicContext, topic: dict, log=lambda s: None):
     if ar == 1:
         ctx.stats["ok"] += 1
         bk.bank_add(key, answer, stem)
+        if src not in ("cache", "blank"):
+            _learn_from_success(ctx, topic, answer, mode, src)
         logf("OK", _disp_answer(topic, answer, mode), f" [{src}]")
         return _submit_next(ctx, code, random.randint(2000, 4000))
 
     # 判错：corrects 已入库，用 corrects 再提交
     if corrects:
-        final_ans = corrects[0] if isinstance(corrects, list) else corrects
-        if mode == 32 and isinstance(final_ans, str):
-            words = final_ans.split()
-            blank_count = stem.count("_")
-            if len(words) < blank_count:
-                expanded = []
-                for w in words:
-                    expanded.extend(w.split("-") if "-" in w else [w])
-                words = expanded
-            final_ans = ",".join(words) if len(words) > 1 else final_ans
-        elif mode == 73 and isinstance(corrects, list):
-            final_ans = json.dumps([str(c) for c in corrects])
+        final_ans = _norm_corrects_answer(corrects, mode, stem)
         bk.bank_add(key, final_ans, stem)
         logf("FIX", _disp_answer(topic, final_ans, mode), " [corrects]")
         return _submit_next(ctx, code, random.randint(2000, 4000))
 
-    # 空白试探（Cidaren-AI 思路）：提交空答案拿纠错
-    resp0 = _verify(ctx, code, "" if mode != 73 else json.dumps([""] * max(stem.count("{"), 1)))
-    d0 = resp0.get("data") or {}
-    if resp0.get("code") == 1 and d0.get("answer_result") == 1:
-        ctx.stats["ok"] += 1
-        ctx.stats["blank"] += 1
-        logf("OK", "空白试探直接命中", " [blank]")
-        return _submit_next(ctx, d0.get("topic_code", code), random.randint(2000, 4000))
-    c2 = d0.get("answer_corrects") or []
-    if c2:
-        ctx.stats["blank"] += 1
-        _learn_from_corrects(ctx, topic, c2)
-        ans2 = c2[0] if isinstance(c2, list) else c2
-        if mode == 32 and isinstance(ans2, str):
-            words = ans2.split()
-            blank_count = stem.count("_")
-            if len(words) < blank_count:
-                expanded = []
-                for w in words:
-                    expanded.extend(w.split("-") if "-" in w else [w])
-                words = expanded
-            ans2 = ",".join(words) if len(words) > 1 else ans2
-        elif mode == 73 and isinstance(c2, list):
-            ans2 = json.dumps([str(c) for c in c2])
-        bk.bank_add(key, ans2, stem)
-        rv = _verify(ctx, d0.get("topic_code", code), ans2)
-        dv = rv.get("data") or {}
-        if dv.get("answer_result") == 1:
-            ctx.stats["ok"] += 1
-            logf("OK", _disp_answer(topic, ans2, mode), " [blank+fix]")
-            return _submit_next(ctx, dv.get("topic_code", code), random.randint(2000, 4000))
-        ctx.stats["fail"] += 1
-        logf("SKIP", "纠错仍失败", " [skip]")
-        return _submit_next(ctx, dv.get("topic_code", code), 20000)
-
-    # 全失败，跳过
-    ctx.stats["skip"] += 1
-    ctx.stats["fail"] += 1
-    logf("SKIP", "无解跳过", " [skip]")
-    return _submit_next(ctx, code, 20000)
+    # 答错且无纠错：也不猜，直接空白试探
+    return _blank_probe(ctx, topic, key, stem, code, mode, logf)
 
 
 def _solve_collocation(ctx, topic, log, logf):
@@ -726,10 +759,9 @@ def _solve_collocation(ctx, topic, log, logf):
     answer_num = topic.get("answer_num") or 2
     key = _topic_key(topic)
     tags, src = None, None
-    if key in ctx.bank:
-        cached = ctx.bank[key]["ans"]
-        if isinstance(cached, list):
-            tags, src = list(cached), "cache"
+    cached = bk.bank_lookup(key, ctx.bank)
+    if isinstance(cached, list) and cached:
+        tags, src = list(cached), "cache"
     if not tags:
         tags = _together_word_tags(topic)
         if tags:
