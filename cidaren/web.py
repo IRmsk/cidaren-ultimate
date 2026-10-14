@@ -673,9 +673,56 @@ _INDEX_HTML = r'''<!doctype html>
     .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; color: #fff; gap: 12px; }
     .modal-logs {
       flex: 1; overflow-y: auto;
-      font-family: ui-monospace, Menlo, monospace;
-      font-size: 12px; white-space: pre-wrap; word-break: break-word; line-height: 1.5;
+      font-family: ui-monospace, Menlo, "SF Mono", monospace;
+      font-size: 12px; line-height: 1.5;
     }
+
+    /* ============================================================
+       日志行（美化版）：徽章 + 内容 + 来源，状态色区分
+       ------------------------------------------------------------
+       行结构： [题型] [状态徽章] 内容 …… [来源徽章]
+       颜色语义： 对=绿 / 学(纠错入库)=橙 / 答(进行中)=琥珀 /
+                  AI=蓝 / 规则=灰蓝 / 纠错=紫 / 失败=红 / 信息=蓝 / 成功=绿
+       ============================================================ */
+    .log-line {
+      display: flex; align-items: baseline; gap: 6px;
+      padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,.05);
+      word-break: break-word;
+    }
+    .log-line:hover { background: rgba(255,255,255,.04); }
+    .lg-mode {          /* 题型编号 [15] */
+      flex: none; font-size: 11px; color: #8e8e93;
+      background: rgba(255,255,255,.08); border-radius: 4px; padding: 1px 5px;
+    }
+    .lg-badge {         /* 状态徽章：对 / 学 / 答 */
+      flex: none; font-size: 11px; font-weight: 600;
+      border-radius: 4px; padding: 1px 6px; white-space: nowrap;
+    }
+    .lg-badge.ok  { color: #34c759; background: rgba(52,199,89,.16); }
+    .lg-badge.fix { color: #ff9f0a; background: rgba(255,159,10,.16); }
+    .lg-badge.ask { color: #ffd60a; background: rgba(255,214,10,.14); }
+    .lg-badge.err { color: #ff453a; background: rgba(255,69,58,.16); }
+    .lg-msg {           /* 内容：占满剩余宽度 */
+      flex: 1 1 auto; color: #d4d4d4; white-space: normal;
+    }
+    .lg-msg.muted { color: #8e8e93; }
+    .lg-msg.err { color: #ff453a; }
+    .lg-src {           /* 来源徽章 [rule]/[llm]/[corrects] */
+      flex: none; font-size: 11px; border-radius: 4px; padding: 1px 6px; white-space: nowrap;
+      color: #a9b7d4; background: rgba(138,155,180,.14);
+    }
+    .lg-src.rule     { color: #64d2ff; background: rgba(100,210,255,.14); }
+    .lg-src.llm      { color: #0a84ff; background: rgba(10,132,255,.16); }
+    .lg-src.corrects { color: #bf5af2; background: rgba(191,90,242,.16); }
+    .lg-src.cache    { color: #30d158; background: rgba(48,209,88,.14); }
+    .lg-src.blank    { color: #ff9f0a; background: rgba(255,159,10,.14); }
+    .lg-tag {           /* 区块头 [词表]/[选词]/[题 x/y]/[开始] 等 */
+      flex: none; font-size: 11px; font-weight: 600; border-radius: 4px; padding: 1px 6px;
+      white-space: nowrap; color: #0a84ff; background: rgba(10,132,255,.14);
+    }
+    .lg-tag.ok  { color: #34c759; background: rgba(52,199,89,.16); }
+    .lg-tag.err { color: #ff453a; background: rgba(255,69,58,.16); }
+    .lg-tag.info{ color: #8e8e93; background: rgba(255,255,255,.08); }
     /* 扫码弹窗：白底小窗，宽度自适应 */
     .qr-box { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px; }
     .qr-box img { width: 240px; height: 240px; border-radius: 8px; }
@@ -1243,6 +1290,61 @@ function closeLogs() {
 }
 
 /**
+ * renderLogLine — 把一行原始日志解析成带徽章的结构化行（HTML）。
+ * 支持格式：
+ *   [15] OK vt. 使分心；分散（注意力） [rule]      → 题型+状态+内容+来源
+ *   [32]？答题 [llm]                               → 答题中
+ *   [32] FIX a,historic,mission [corrects]         → 纠错入库
+ *   [题 3/65] 开始 / [词表] 共 40 词 / [完成] 65/65 → 区块信息行
+ * 无法识别的行降级为普通灰色文本（内容一律 escapeHtml，防注入）。
+ * @param {string} line 原始日志行
+ * @returns {string} 渲染后的 HTML 片段
+ */
+function renderLogLine(line) {
+  const t = String(line || "").trim();
+  if (!t) return "";
+  const esc = escapeHtml(t);
+
+  // 1) 题型答题行：先摘尾部来源 [rule]/[llm]/[corrects]...
+  //    兼容两种日志形态：[15]? 答题（半角问号+空格）与 [32]？答题（全角问号紧贴）
+  let m = t.match(/^(\[\d+\])(?:[?？]\s*|\s+)(.+?)\s+\[([a-z_]+)\]$/i);
+  if (m) {
+    const modeTag = m[1], body = m[2], src = m[3].toLowerCase();
+    let badge = "", badgeCls = "";
+    const s = body.toUpperCase();
+    if (s.startsWith("OK"))      { badge = "对"; badgeCls = "ok"; }
+    else if (s.startsWith("FIX")){ badge = "学"; badgeCls = "fix"; }
+    else if (s.includes("答题") || body.startsWith("?")) { badge = "答"; badgeCls = "ask"; }
+    else                         { badge = "题"; badgeCls = "ask"; }
+    const srcLabel = { rule:"规则", llm:"AI", corrects:"纠错", cache:"题库", blank:"试探", skip:"跳过" }[src] || src;
+    const badgeHtml = badge ? `<span class="lg-badge ${badgeCls}">${badge}</span>` : "";
+    return `<div class="log-line"><span class="lg-mode">${modeTag}</span>${badgeHtml}<span class="lg-msg">${escapeHtml(body)}</span><span class="lg-src ${src}">${srcLabel}</span></div>`;
+  }
+
+  // 2) 区块信息行：[xxx] 内容（词表/选词/题 x/y/开始/完成/分数/满分/签到/网络异常...）
+  m = t.match(/^\[([^\]]+)\]\s*(.*)$/);
+  if (m) {
+    const head = m[1], rest = m[2];
+    let cls = "info";
+    if (/^(网络异常|风控|失败|异常|保护|选词失败|跳过)/.test(head)) cls = "err";
+    else if (/^(满分|完成|签到)/.test(head)) cls = "ok";
+    return `<div class="log-line"><span class="lg-tag ${cls}">${escapeHtml(head)}</span><span class="lg-msg ${cls === "err" ? "err" : "muted"}">${escapeHtml(rest)}</span></div>`;
+  }
+
+  // 3) 兜底：普通文本行
+  return `<div class="log-line"><span class="lg-msg muted">${esc}</span></div>`;
+}
+
+/**
+ * renderLogLines — 批量渲染日志行。
+ * @param {string[]} lines 原始日志行数组
+ * @returns {string} 全部行的 HTML
+ */
+function renderLogLines(lines) {
+  return (lines || []).map(renderLogLine).join("");
+}
+
+/**
  * refreshLogs — 按 activeLogKey 拉取最新日志并渲染。
  * 若日志框原本在底部则自动跟随滚动到底（方便追新输出）；
  * 任务结束后停轮询并刷新任务列表。
@@ -1256,7 +1358,7 @@ async function refreshLogs() {
     if (j.ok) {
       const box = document.getElementById("log-content");
       const wasBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
-      box.textContent = j.logs.join("\n");
+      box.innerHTML = renderLogLines(j.logs);
       if (wasBottom) box.scrollTop = box.scrollHeight;
       if (j.done) { clearInterval(logTimer); logTimer = null; loadTasks(); }
     }
