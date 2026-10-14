@@ -1,10 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-web.py — Web 控制台（基于 LangQi99/cidaren 增强）
-- 配置中心：鉴权 / 自学 / LLM / AI 策略 / 答题节奏
-- 扫码登录（Rain-shadow/cdr 思路）：弹窗二维码，授权成功自动回填 USERTOKEN
-- 答案库统计：题库 / 短语库 / 单词库 条目数实时展示
-- 任务面板：班级 + 自学任务，启动 / 循环 / 停止 / 实时日志
+web.py — Web 控制台（基于 LangQi99/cidaren 增强，含 chuyc11/xuhaoranbb 的断点恢复与测试报告）
+
+页面能力：
+1. 配置中心：鉴权（Token / 扫码登录）/ 自学 / LLM / AI 策略 / 答题节奏 / OCR，
+   表单实时读写 .env（保存即生效）
+2. 任务面板：班级 + 自学任务，启动 / 循环刷满 / 停止 / 断点恢复 / 实时日志
+3. 测试报告：每题判分与来源统计（cache / rule / ai / blank / skip）
+
+架构说明（重要）：
+- 刷题由「子进程」执行（python -m cidaren class/study ...），本服务只负责调度、
+  状态跟踪与日志转发。好处：页面刷新/关掉浏览器都不打断刷题，也方便循环重刷。
+- JOBS 表以 (source, task_id, release_id) 为键，保存每个任务的子进程句柄、
+  日志环形缓冲（上限 LOG_MAX 行）与循环轮次。
+- _reader_thread 后台线程持续读子进程 stdout 写进日志缓冲；任务结束后，
+  若开了循环且未满分则自动间隔 5s 重启下一轮（断点恢复的核心）。
 """
 from __future__ import annotations
 
@@ -30,20 +40,32 @@ from .config import (
 
 app = Flask(__name__)
 
+# ------------------------------------------------------------------
+# 任务调度状态
+#   JOBS:   { (source, task_id, release_id): job }  任务索引
+#   job 字段: proc=子进程句柄, logs=日志环形缓冲, done=是否结束,
+#            loop=是否循环刷, round=当前轮次, stopped=用户是否手动停止
+# ------------------------------------------------------------------
 JOBS = {}
 JOBS_LOCK = threading.Lock()
-LOG_MAX = 800
+LOG_MAX = 800  # 每个任务最多保留的日志行数（环形缓冲，防内存膨胀）
 
+# ------------------------------------------------------------------
 # 扫码登录会话
+#   token:   后端生成的授权 user_token（未确认前不写入配置）
+#   started: 二维码生成时间戳，用于 10 分钟过期判断
+# ------------------------------------------------------------------
 QR_STATE = {"token": None, "started": 0.0}
 QR_LOCK = threading.Lock()
 
 
 def _job_key(source, task_id, release_id):
+    """生成任务唯一键：(来源, 任务ID, 发布ID) 三元组。"""
     return ((source or "class"), str(task_id), str(release_id))
 
 
 def _int_or_default(value, default):
+    """安全转 int；失败返回默认值（配置项可能是空串/None）。"""
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -51,6 +73,7 @@ def _int_or_default(value, default):
 
 
 def _find_job(source, task_id, release_id):
+    """按键查任务；自学任务(list_id)与 release_id 是同一含义，做了兼容查找。"""
     job = JOBS.get(_job_key(source, task_id, release_id))
     if job or source != "study":
         return job
@@ -61,6 +84,7 @@ def _find_job(source, task_id, release_id):
 
 
 def _client(config=None):
+    """构造词达人 API 客户端；缺鉴权字段时抛出带提示的 ValueError。"""
     from .api import Client
     cfg = config or get_runtime_config()
     missing = get_missing_auth_fields(cfg)
@@ -70,6 +94,7 @@ def _client(config=None):
 
 
 def _list_class_tasks(c):
+    """分页拉取全部班级任务（每页 50，最多 20 页）。"""
     out, page = [], 1
     while True:
         resp = c.page_task(page=page, size=50)
@@ -86,12 +111,18 @@ def _list_class_tasks(c):
 
 
 def _list_study_tasks(c, course_id):
+    """拉取指定课程下的全部自学任务。"""
     resp = c.study_task_list(course_id=course_id)
     data = resp.get("data") or {}
     return data.get("task_list") or []
 
 
 def _list_tasks():
+    """
+    汇总班级 + 自学两类任务，并附带每个任务当前的运行状态
+    （running / done / loop / round），供前端表格直接渲染。
+    某类接口失败不影响另一类，失败信息进 warnings 由前端展示。
+    """
     cfg = get_runtime_config()
     c = _client(cfg)
     course_id = (cfg.get("COURSE_ID") or "CET4_v2").strip() or "CET4_v2"
@@ -132,6 +163,12 @@ def _list_tasks():
 
 
 def _reader_thread(job_id, proc):
+    """
+    日志读取后台线程：
+    1. 逐行读子进程 stdout 写进任务的日志环形缓冲
+    2. 进程退出后标记 done / exit_code
+    3. 循环模式：查最新分数，未满分则 5s 后自动重启下一轮（断点恢复）
+    """
     job = JOBS[job_id]
     for line in iter(proc.stdout.readline, b""):
         try:
@@ -162,6 +199,7 @@ def _reader_thread(job_id, proc):
 
 
 def _query_score(source, task_id, release_id, course_id=None, list_id=None):
+    """查询任务当前分数（自学走 study_task_list，班级走 page_task 匹配）。"""
     c = _client()
     if source == "study":
         resp = c.study_task_list(course_id=course_id or "CET4_v2")
@@ -187,6 +225,13 @@ def _query_score(source, task_id, release_id, course_id=None, list_id=None):
 
 def _spawn_job(source, task_id, release_id, loop=False, config=None, course_id=None,
                list_id=None, task_type=None, grade=None):
+    """
+    启动一个刷题子进程并登记到 JOBS：
+    - 班级: python -m cidaren class <task_id> <release_id> <task_type>
+    - 自学: python -m cidaren study <task_id> <list_id> <course_id> <task_type> <grade>
+    - 环境变量由 build_subprocess_env 注入（USERTOKEN/LLM 等配置）
+    - 同任务已跑过一轮时保留旧日志，追加"第 N 轮启动"分隔线
+    """
     if source == "study":
         args = ["study", str(task_id), str(list_id or release_id), str(course_id or "CET4_v2"),
                 str(task_type or 3), str(grade or 2)]
@@ -211,15 +256,26 @@ def _spawn_job(source, task_id, release_id, loop=False, config=None, course_id=N
     threading.Thread(target=_reader_thread, args=(key, proc), daemon=True).start()
 
 
-# ================= Routes =================
+# ==================================================================
+# API 路由（前端 fetch 全部指向这里，返回 JSON）
+#   页面    GET  /                → 控制台 HTML
+#   配置    GET/POST /api/config  → 读取/保存 .env
+#   任务    GET  /api/tasks       → 班级+自学任务列表（含运行状态）
+#   登录    POST /api/login_qr · GET /api/login_poll → 扫码登录
+#   操作    POST /api/start · /api/start_all · /api/stop → 启动/断点恢复/停止
+#   日志    GET  /api/logs        → 实时日志轮询
+#   报告    GET  /api/reports · /api/report → 测试报告统计与明细
+# ==================================================================
 
 @app.route("/")
 def index():
+    """渲染控制台页面（内嵌 HTML/CSS/JS，单文件无外部依赖）。"""
     return Response(_INDEX_HTML, mimetype="text/html; charset=utf-8")
 
 
 @app.route("/api/config")
 def api_config():
+    """读取当前 .env 配置 + 鉴权缺失字段 + 答案库统计，供表单回填。"""
     config = get_runtime_config()
     return jsonify({
         "ok": True, "config": config, "env_file": env_file_path(),
@@ -230,6 +286,7 @@ def api_config():
 
 @app.route("/api/config", methods=["POST"])
 def api_save_config():
+    """保存前端提交的整份配置到 .env（白名单由 save_runtime_config 把关）。"""
     body = request.get_json(force=True) or {}
     saved = save_runtime_config(body)
     return jsonify({
@@ -241,6 +298,7 @@ def api_save_config():
 
 @app.route("/api/tasks")
 def api_tasks():
+    """返回任务列表；缺鉴权字段时 400，接口异常时 500，正常附带统计。"""
     try:
         tasks, warnings = _list_tasks()
     except ValueError as e:
@@ -252,6 +310,7 @@ def api_tasks():
 
 @app.route("/api/token_check")
 def api_token_check():
+    """校验 USERTOKEN 有效性，返回学生姓名或错误信息。"""
     from .login import is_token_valid
     cfg = get_runtime_config()
     missing = get_missing_auth_fields(cfg)
@@ -266,7 +325,7 @@ def api_token_check():
 
 @app.route("/api/login_qr", methods=["POST"])
 def api_login_qr():
-    """生成扫码登录二维码。"""
+    """生成扫码登录二维码。返回 user_token / base64 图片 / 授权链接。"""
     from .login import qr_authorize
     try:
         with QR_LOCK:
@@ -285,7 +344,7 @@ def api_login_qr():
 
 @app.route("/api/login_poll")
 def api_login_poll():
-    """轮询扫码结果。成功后把 USERTOKEN 写进配置。"""
+    """轮询扫码结果。成功后把 USERTOKEN 写进配置并返回学生姓名。"""
     from .login import is_token_valid
     with QR_LOCK:
         token = QR_STATE.get("token")
@@ -306,6 +365,10 @@ def api_login_poll():
 
 @app.route("/api/start", methods=["POST"])
 def api_start():
+    """
+    启动单个任务（前端"启动/循环"按钮）。
+    同一任务已在运行时不重复启动；loop=true 表示刷到满分自动重刷。
+    """
     body = request.get_json(force=True)
     source = body.get("source") or "class"
     task_id = int(body["task_id"])
@@ -332,6 +395,10 @@ def api_start():
 
 @app.route("/api/start_all", methods=["POST"])
 def api_start_all():
+    """
+    断点恢复：把全部「未满分且未运行」的班级任务以循环模式启动。
+    返回 started（新启动数）/ skipped（跳过数：运行中或已满分）。
+    """
     try:
         config = get_runtime_config()
         missing = get_missing_auth_fields(config)
@@ -362,6 +429,7 @@ def api_start_all():
 
 @app.route("/api/stop", methods=["POST"])
 def api_stop():
+    """停止任务：标记 stopped/取消循环，并 terminate 子进程。"""
     body = request.get_json(force=True)
     source = body.get("source") or "class"
     task_id = int(body["task_id"])
@@ -383,11 +451,13 @@ def api_stop():
 
 @app.route("/api/reports")
 def api_reports():
+    """返回全部测试报告的任务级统计（用于报告列表卡片）。"""
     return jsonify({"ok": True, "reports": rp.list_reports()})
 
 
 @app.route("/api/report")
 def api_report_detail():
+    """返回单个任务的报告统计 + 最近 200 条判分明细。"""
     key = request.args.get("key", "")
     if not key:
         return jsonify({"ok": False, "error": "缺少 key"}), 400
@@ -398,6 +468,7 @@ def api_report_detail():
 
 @app.route("/api/logs")
 def api_logs_query():
+    """实时日志轮询：返回任务日志缓冲 + 是否结束 + 退出码。"""
     source = request.args.get("source") or "class"
     task_id = request.args.get("task_id")
     release_id = request.args.get("release_id")
@@ -413,85 +484,256 @@ def api_logs_query():
 _INDEX_HTML = r'''<!doctype html>
 <html lang="zh">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>cidaren-ultimate 控制台</title>
-<style>
-  * { box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
-         margin: 0; padding: 24px; background: #f5f7fb; color: #1d1d1f; }
-  h1 { font-size: 26px; margin: 0 0 8px; }
-  .subtitle { margin: 0 0 20px; color: #667085; font-size: 14px; }
-  .layout { display: grid; gap: 20px; }
-  .card { background: #fff; border: 1px solid #eaecf0; border-radius: 16px; box-shadow: 0 8px 24px rgba(15,23,42,.04); overflow: hidden; }
-  .card-head { padding: 18px 20px; border-bottom: 1px solid #f2f4f7; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-  .card-head h2 { margin: 0; font-size: 18px; }
-  .card-head p { margin: 4px 0 0; color: #667085; font-size: 13px; }
-  .card-body { padding: 20px; }
-  .bar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; font-size: 13px; color: #666; flex-wrap: wrap; }
-  button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid #d2d2d7; background: white; cursor: pointer; }
-  button:hover { background: #f0f0f0; }
-  button.primary { background: #007aff; color: white; border-color: #007aff; }
-  button.primary:hover { background: #0062cc; }
-  button.danger { background: #ff3b30; color: white; border-color: #ff3b30; }
-  button.loop { background: #5856d6; color: white; border-color: #5856d6; }
-  button.loop:hover { background: #4845b0; }
-  button.green { background: #34c759; color: white; border-color: #34c759; }
-  button:disabled { opacity: .5; cursor: not-allowed; }
-  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
-  .grid { display: grid; grid-template-columns: repeat(2, minmax(280px, 1fr)); gap: 16px; }
-  .field { display: flex; flex-direction: column; gap: 8px; }
-  .field label { font-size: 13px; font-weight: 600; color: #344054; }
-  .field input { width: 100%; border: 1px solid #d0d5dd; border-radius: 10px; padding: 10px 12px; font: inherit; }
-  .field small { color: #667085; font-size: 12px; }
-  .full { grid-column: 1 / -1; }
-  .status-box { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; background: #f8fafc; border: 1px solid #e2e8f0; color: #475467; font-size: 12px; }
-  .status-box.ok { background: #ecfdf3; color: #027a48; border-color: #d1fadf; }
-  .status-box.warn { background: #fff7ed; color: #b54708; border-color: #fed7aa; }
-  .inline-code { font-family: ui-monospace, Menlo, monospace; background: #f2f4f7; padding: 2px 6px; border-radius: 6px; }
-  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
-  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
-  th { background: #fafafa; font-weight: 600; color: #666; font-size: 12px; text-transform: uppercase; }
-  tr:last-child td { border-bottom: none; }
-  .progress-bar { width: 100px; height: 6px; background: #e8e8ed; border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 6px; }
-  .progress-bar > div { height: 100%; background: #34c759; transition: width .3s; }
-  .score { font-weight: 600; }
-  .score.full { color: #34c759; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
-  .badge.run { background: #fff3cd; color: #856404; }
-  .badge.done { background: #d4edda; color: #155724; }
-  .stats-row { display: flex; gap: 14px; flex-wrap: wrap; }
-  .stat-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: #eef2ff; color: #4338ca; font-size: 12px; }
-  .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100; }
-  .modal.show { display: flex; align-items: center; justify-content: center; }
-  .modal-body { background: #1e1e1e; color: #d4d4d4; width: 80vw; height: 75vh; border-radius: 8px; padding: 16px; overflow: hidden; display: flex; flex-direction: column; }
-  .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; color: white; }
-  .modal-logs { flex: 1; overflow-y: auto; font-family: ui-monospace, Menlo, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
-  .qr-box { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px; }
-  .qr-box img { width: 240px; height: 240px; border-radius: 8px; }
-  @media (max-width: 900px) {
-    body { padding: 16px; }
-    .grid { grid-template-columns: 1fr; }
-    table { display: block; overflow-x: auto; }
-  }
-</style>
+  <meta charset="utf-8" />
+  <!-- viewport: 移动端适配的关键，禁止缩放以保布局稳定 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#f5f7fb" />
+  <title>cidaren-ultimate 控制台</title>
+  <style>
+    /* ============================================================
+       1. 全局变量与基础样式
+       —— 用 CSS 变量统一色板，后面所有组件只引用变量，改主题只需改这里
+       ============================================================ */
+    :root {
+      --bg: #f5f7fb;            /* 页面背景 */
+      --card: #ffffff;          /* 卡片背景 */
+      --border: #eaecf0;        /* 卡片描边 */
+      --text: #1d1d1f;          /* 主文字 */
+      --muted: #667085;         /* 次要文字 */
+      --primary: #007aff;       /* 主操作色（启动/保存） */
+      --primary-dark: #0062cc;  /* 主操作色 hover */
+      --loop: #5856d6;          /* 循环/断点恢复紫色 */
+      --loop-dark: #4845b0;
+      --danger: #ff3b30;        /* 停止/危险操作 */
+      --ok: #34c759;            /* 成功/满分 */
+      --warn-bg: #fff7ed;
+      --warn-text: #b54708;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      /* 手机端 padding 更小，底部留出 iPhone 安全区 */
+      padding: 24px;
+      padding-bottom: calc(24px + env(safe-area-inset-bottom));
+    }
+    h1 { font-size: 26px; margin: 0 0 8px; }
+    .subtitle { margin: 0 0 20px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+
+    /* ============================================================
+       2. 卡片容器
+       ============================================================ */
+    .layout { display: flex; flex-direction: column; gap: 20px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 24px rgba(15,23,42,.04);
+      overflow: hidden;
+    }
+    /* 卡片头部：标题在左，状态/按钮在右；窄屏自动换行 */
+    .card-head {
+      padding: 18px 20px;
+      border-bottom: 1px solid #f2f4f7;
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 12px; flex-wrap: wrap;
+    }
+    .card-head h2 { margin: 0; font-size: 18px; }
+    .card-head p { margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .card-body { padding: 20px; }
+
+    /* ============================================================
+       3. 按钮
+       —— 手机端统一放大触控目标（min-height 44px，Apple 推荐）
+       ============================================================ */
+    button {
+      font: inherit;
+      padding: 8px 16px;
+      min-height: 40px;
+      border-radius: 10px;
+      border: 1px solid #d2d2d7;
+      background: #fff;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    button:hover { background: #f0f0f0; }
+    button:active { transform: scale(.97); }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    button.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    button.primary:hover { background: var(--primary-dark); }
+    button.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+    button.loop { background: var(--loop); color: #fff; border-color: var(--loop); }
+    button.loop:hover { background: var(--loop-dark); }
+    button.green { background: var(--ok); color: #fff; border-color: var(--ok); }
+    .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    /* ============================================================
+       4. 配置表单
+       —— 双列栅格；窄屏自动变单列
+       ============================================================ */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .full { grid-column: 1 / -1; }  /* 跨整行的字段 */
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 13px; font-weight: 600; color: #344054; }
+    .field input {
+      width: 100%;
+      border: 1px solid #d0d5dd;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font: inherit;
+      font-size: 16px;             /* ≥16px 防止 iOS 聚焦自动放大 */
+    }
+    .field input:focus { outline: 2px solid rgba(0,122,255,.25); border-color: var(--primary); }
+    .field small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+    /* ============================================================
+       5. 状态徽章 / 统计胶囊
+       ============================================================ */
+    .bar {
+      display: flex; gap: 12px; align-items: center;
+      margin-bottom: 16px; font-size: 13px; color: #666;
+      flex-wrap: wrap;
+    }
+    .status-box {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-radius: 999px;
+      background: #f8fafc; border: 1px solid #e2e8f0;
+      color: #475467; font-size: 12px;
+      max-width: 100%;
+      word-break: break-all;
+    }
+    .status-box.ok { background: #ecfdf3; color: #027a48; border-color: #d1fadf; }
+    .status-box.warn { background: var(--warn-bg); color: var(--warn-text); border-color: #fed7aa; }
+    .stat-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 12px; border-radius: 999px;
+      background: #eef2ff; color: #4338ca; font-size: 12px;
+    }
+    .inline-code { font-family: ui-monospace, Menlo, monospace; background: #f2f4f7; padding: 2px 6px; border-radius: 6px; }
+
+    /* ============================================================
+       6. 表格（任务 / 报告）
+       —— 每列用 data-label 标注列名，窄屏时转成卡片式列表（见响应式段）
+       ============================================================ */
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+    th { background: #fafafa; font-weight: 600; color: #666; font-size: 12px; text-transform: uppercase; }
+    tr:last-child td { border-bottom: none; }
+    .progress-bar {
+      width: 100px; height: 6px; background: #e8e8ed; border-radius: 3px;
+      overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 6px;
+    }
+    .progress-bar > div { height: 100%; background: var(--ok); transition: width .3s; }
+    .score { font-weight: 600; }
+    .score.full { color: var(--ok); }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+    .badge.run { background: #fff3cd; color: #856404; }
+    .badge.done { background: #d4edda; color: #155724; }
+
+    /* ============================================================
+       7. 弹窗（日志 / 扫码）
+       ============================================================ */
+    .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100; }
+    .modal.show { display: flex; align-items: center; justify-content: center; }
+    .modal-body {
+      background: #1e1e1e; color: #d4d4d4;
+      width: 80vw; max-width: 760px; height: 75vh;
+      border-radius: 12px; padding: 16px;
+      display: flex; flex-direction: column;
+    }
+    .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; color: #fff; gap: 12px; }
+    .modal-logs {
+      flex: 1; overflow-y: auto;
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 12px; white-space: pre-wrap; word-break: break-word; line-height: 1.5;
+    }
+    /* 扫码弹窗：白底小窗，宽度自适应 */
+    .qr-box { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px; }
+    .qr-box img { width: 240px; height: 240px; border-radius: 8px; }
+    .qr-modal { width: min(88vw, 360px); height: auto; background: #fff; color: #1d1d1f; }
+
+    /* ============================================================
+       8. 响应式（移动端适配核心）
+       —— 断点 900px：配置栅格变单列
+       —— 断点 768px：表格转卡片、按钮加大、日志全屏、安全区
+       ============================================================ */
+    @media (max-width: 900px) {
+      body { padding: 16px; }
+      .grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 768px) {
+      body { padding: 12px; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+      h1 { font-size: 22px; }
+      .subtitle { font-size: 13px; }
+      .card-head { padding: 14px 16px; }
+      .card-body { padding: 16px; }
+
+      /* 表格 → 卡片列表：隐藏表头，每行成一张卡，每格成"列名: 值"一行 */
+      table, tbody, tr, td { display: block; width: 100%; }
+      thead { display: none; }
+      tr {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        margin-bottom: 12px;
+        overflow: hidden;
+        box-shadow: 0 2px 6px rgba(15,23,42,.04);
+      }
+      td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 14px;
+        border-bottom: 1px dashed #f0f0f0;
+      }
+      /* data-label 在窄屏充当列名（宽屏时隐藏） */
+      td::before { content: attr(data-label); color: var(--muted); font-size: 12px; flex-shrink: 0; }
+      td:last-child { border-bottom: none; }
+      /* 单元格值容器：占满剩余宽度、右对齐、允许换行，防长任务名截断 */
+      td .cell-val { flex: 1; min-width: 0; text-align: right; word-break: break-all; }
+      td .cell-val .progress-bar { width: 120px; }
+      td .cell-val .btn-wrap { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+      /* 触控按钮放大，操作列按钮换行排列 */
+      button { padding: 10px 16px; min-height: 44px; }
+      .bar { gap: 8px; }
+
+      /* 日志弹窗全屏（看长日志体验更好） */
+      .modal-body { width: 100vw; max-width: none; height: 100dvh; border-radius: 0; padding: 12px; }
+      .modal-body.qr-modal { height: auto; border-radius: 12px; }
+    }
+  </style>
 </head>
 <body>
+
+  <!-- ==================== 页头 ==================== -->
   <h1>cidaren-ultimate</h1>
   <p class="subtitle">词达人全自动刷题整合版：班级 + 自学任务 · 全题型规则引擎 · AI 优先答题 · 答案库自学习 · 扫码登录</p>
 
   <div class="layout">
+
+    <!-- ==================== 卡片 1：配置中心 ==================== -->
     <section class="card">
       <div class="card-head">
         <div><h2>配置中心</h2><p>token / LLM / AI 策略，保存后写入 <span class="inline-code">.env</span>。</p></div>
+        <!-- 鉴权状态胶囊：配置完整显示绿色，缺字段显示橙色警告 -->
         <div id="config-pill" class="status-box">读取中...</div>
       </div>
       <div class="card-body">
+        <!-- 快捷操作栏 -->
         <div class="bar">
           <button class="green" onclick="openQr()">微信扫码登录</button>
           <button onclick="checkToken()">校验 Token</button>
           <div id="stats-box" class="status-box">答案库: -</div>
         </div>
+        <!-- 配置表单：两列栅格，每个字段带说明 -->
         <div class="grid">
           <div class="field">
             <label for="USERTOKEN">USERTOKEN</label>
@@ -579,6 +821,7 @@ _INDEX_HTML = r'''<!doctype html>
             <small>百度 OCR Secret Key。</small>
           </div>
         </div>
+        <!-- 保存操作栏：重新读取 / 保存 / 保存并刷新任务 -->
         <div class="bar" style="margin-top:18px; margin-bottom:0; justify-content:space-between;">
           <div id="env-path" class="status-box">.env 路径加载中...</div>
           <div class="btn-row">
@@ -590,6 +833,7 @@ _INDEX_HTML = r'''<!doctype html>
       </div>
     </section>
 
+    <!-- ==================== 卡片 2：任务面板 ==================== -->
     <section class="card">
       <div class="card-head">
         <div><h2>任务面板</h2><p>子进程执行刷题流程，日志实时查看。重启程序后点「断点恢复」继续所有未完成。</p></div>
@@ -602,16 +846,18 @@ _INDEX_HTML = r'''<!doctype html>
           <button onclick="loadReports()">测试报告</button>
           <span id="status">加载中...</span>
         </div>
+        <!-- 任务列表：PC 显示表格，手机自动转卡片（data-label 列名） -->
         <table>
           <thead><tr>
             <th style="width:40px">#</th><th>任务名</th><th style="width:160px">进度</th>
-            <th style="width:80px">分数</th><th style="width:80px">状态</th><th style="width:210px">操作</th>
+            <th style="width:80px">分数</th><th style="width:80px">状态</th><th style="width:230px">操作</th>
           </tr></thead>
           <tbody id="tbody"></tbody>
         </table>
       </div>
     </section>
 
+    <!-- ==================== 卡片 3：测试报告 ==================== -->
     <section class="card" id="report-card" style="display:none;">
       <div class="card-head">
         <div><h2>测试报告</h2><p>每题判分与来源统计（按任务聚合，越刷越有参考价值）。</p></div>
@@ -621,6 +867,8 @@ _INDEX_HTML = r'''<!doctype html>
     </section>
   </div>
 
+  <!-- ==================== 弹窗：实时日志 ==================== -->
+  <!-- 点击遮罩(非弹窗本体)关闭；手机端自动全屏 -->
   <div class="modal" id="modal-logs" onclick="if(event.target===this)closeLogs()">
     <div class="modal-body">
       <div class="modal-head"><span id="log-title">日志</span><button onclick="closeLogs()">✕ 关闭</button></div>
@@ -628,8 +876,9 @@ _INDEX_HTML = r'''<!doctype html>
     </div>
   </div>
 
+  <!-- ==================== 弹窗：扫码登录 ==================== -->
   <div class="modal" id="modal-qr" onclick="if(event.target===this)closeQr()">
-    <div class="modal-body" style="width:360px; height:auto; background:#fff; color:#1d1d1f;">
+    <div class="modal-body qr-modal">
       <div class="modal-head"><span>微信扫码登录</span><button onclick="closeQr()">✕ 关闭</button></div>
       <div class="qr-box">
         <div id="qr-img-box" style="min-height:240px; display:flex; align-items:center; justify-content:center; color:#888;">生成中...</div>
@@ -639,17 +888,34 @@ _INDEX_HTML = r'''<!doctype html>
   </div>
 
 <script>
+/* ============================================================
+   全局状态
+   - activeLogKey: 当前正在查看日志的任务（用于轮询 /api/logs）
+   - logTimer:     日志自动刷新定时器句柄
+   - currentTasks: 最近一次 /api/tasks 返回的任务数组（行内操作按下标取任务）
+   - qrTimer:      扫码结果轮询定时器句柄
+   - CONFIG_KEYS:  配置表单字段清单（与后端 get_runtime_config 的键一一对应）
+   ============================================================ */
 let activeLogKey = null;
 let logTimer = null;
 let currentTasks = [];
 let qrTimer = null;
 const CONFIG_KEYS = ["USERTOKEN","ABC","AUTH_V","COURSE_ID","STUDY_GRADE","LLM_URL","LLM_KEY","LLM_MODEL","LLM_MAX_TOKENS","AI_PRIORITY","DELAY_PER_QUESTION","MAX_ROUNDS","QUESTION_TIMEOUT","USE_WORD_API","OCR_MODE","BAIDU_OCR_AK","BAIDU_OCR_SK"];
 
+/* ============================================================
+   配置中心
+   ============================================================ */
+
+/**
+ * loadConfig — 拉取后端当前配置(.env)，回填表单。
+ * 同时更新：答案库统计胶囊、鉴权状态胶囊、.env 路径显示。
+ */
 async function loadConfig() {
   try {
     const r = await fetch("/api/config");
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || "读取配置失败");
+    // 把后端返回的每个字段写进对应 id 的 input
     for (const key of CONFIG_KEYS) {
       const el = document.getElementById(key);
       if (el) el.value = j.config[key] || "";
@@ -658,11 +924,16 @@ async function loadConfig() {
     renderStats(j.stats);
     renderConfigStatus(j.missing_auth || []);
   } catch (e) {
+    // 读取失败时把状态胶囊变橙色，提示用户
     document.getElementById("config-pill").className = "status-box warn";
     document.getElementById("config-pill").textContent = "配置读取失败";
   }
 }
 
+/**
+ * renderConfigStatus — 按缺失字段列表渲染右上角鉴权胶囊。
+ * missing 为空 → 绿色"配置完整"；否则橙色列出缺的字段。
+ */
 function renderConfigStatus(missing) {
   const pill = document.getElementById("config-pill");
   if (!missing || missing.length === 0) {
@@ -674,12 +945,19 @@ function renderConfigStatus(missing) {
   }
 }
 
+/**
+ * renderStats — 渲染答案库统计（题库/短语/单词/词表条目数）。
+ */
 function renderStats(stats) {
   if (!stats) return;
   document.getElementById("stats-box").textContent =
     `答案库: 题库 ${stats.bank} · 短语 ${stats.phrase} · 单词 ${stats.word} · 词表 ${stats.pool}`;
 }
 
+/**
+ * saveConfig — 把表单所有字段 POST 到后端保存为 .env。
+ * @param refreshTasks true 时保存后顺手刷新任务面板（"保存并刷新任务"按钮）
+ */
 async function saveConfig(refreshTasks) {
   const payload = {};
   for (const key of CONFIG_KEYS) {
@@ -698,6 +976,9 @@ async function saveConfig(refreshTasks) {
   if (refreshTasks) await loadTasks();
 }
 
+/**
+ * checkToken — 调后端校验 USERTOKEN 是否有效，弹窗展示学生姓名或错误。
+ */
 async function checkToken() {
   const r = await fetch("/api/token_check");
   const j = await r.json();
@@ -705,6 +986,15 @@ async function checkToken() {
   else alert(j.error || "Token 无效");
 }
 
+/* ============================================================
+   扫码登录
+   ============================================================ */
+
+/**
+ * openQr — 打开扫码弹窗并请求后端生成二维码。
+ * 后端返回 base64 图片直接展示；不支持时给授权链接兜底。
+ * 成功后每 3 秒轮询一次扫码结果（pollQr）。
+ */
 async function openQr() {
   document.getElementById("modal-qr").classList.add("show");
   document.getElementById("qr-status").textContent = "生成中...";
@@ -726,6 +1016,10 @@ async function openQr() {
   }
 }
 
+/**
+ * pollQr — 轮询扫码结果。
+ * 成功 → 停轮询、提示欢迎、自动刷新配置；等待中 → 提示等待；失败 → 停轮询。
+ */
 async function pollQr() {
   const r = await fetch("/api/login_poll");
   const j = await r.json();
@@ -742,11 +1036,20 @@ async function pollQr() {
   }
 }
 
+/** closeQr — 关闭扫码弹窗并停掉轮询。 */
 function closeQr() {
   if (qrTimer) clearInterval(qrTimer);
   document.getElementById("modal-qr").classList.remove("show");
 }
 
+/* ============================================================
+   任务面板
+   ============================================================ */
+
+/**
+ * loadTasks — 拉取 /api/tasks 渲染任务表格，并刷新答案库统计。
+ * 页面上方"刷新任务"按钮与 5 秒定时器共用此函数。
+ */
 async function loadTasks() {
   document.getElementById("status").textContent = "拉取中...";
   try {
@@ -762,6 +1065,11 @@ async function loadTasks() {
   }
 }
 
+/**
+ * render — 把任务数组渲染进表格。
+ * 每个 td 带 data-label（窄屏时 CSS 用它显示列名）。
+ * 运行中的任务显示"停止/日志"，未运行显示"启动/循环"。
+ */
 function render(tasks) {
   currentTasks = tasks;
   const tb = document.getElementById("tbody");
@@ -780,26 +1088,33 @@ function render(tasks) {
       badge += ` <span class="badge done">已完成</span>`;
     }
     return `<tr>
-      <td>${i}</td>
-      <td>${escapeHtml(t.task_name)}</td>
-      <td><div class="progress-bar"><div style="width:${prog}%"></div></div>${prog}%</td>
-      <td class="${scoreCls}">${score}</td>
-      <td>${badge}</td>
-      <td>${
+      <td data-label="#序号">${i}</td>
+      <td data-label="任务名"><span class="cell-val">${escapeHtml(t.task_name)}</span></td>
+      <td data-label="进度"><span class="cell-val"><div class="progress-bar"><div style="width:${prog}%"></div></div>${prog}%</span></td>
+      <td data-label="分数" class="${scoreCls}"><span class="cell-val">${score}</span></td>
+      <td data-label="状态"><span class="cell-val">${badge}</span></td>
+      <td data-label="操作"><span class="cell-val"><span class="btn-wrap">${
         t.running
           ? `<button class="danger" onclick="stopTask(${i})">停止</button><button onclick="showLogs(${i})">日志</button>`
           : `<button class="primary" onclick="startTask(${i}, false)">▶ 启动</button><button class="loop" onclick="startTask(${i}, true)" title="刷到100分为止">🔁 循环</button>${t.done ? `<button onclick="showLogs(${i})">日志</button>` : ""}`
-      }</td>
+      }</span></span></td>
     </tr>`;
   }).join("");
 }
 
+/**
+ * taskPayload — 把任务对象 + 循环标记拼成后端 /api/start 需要的请求体。
+ */
 function taskPayload(task, loop) {
   return { source: task.source || "class", task_id: task.task_id, release_id: task.release_id,
            course_id: task.course_id, list_id: task.list_id, task_type: task.task_type,
            grade: task.grade, loop: !!loop };
 }
 
+/**
+ * startTask — 启动单个任务（loop=false 单轮 / loop=true 循环刷到满分）。
+ * 启动成功后自动打开日志弹窗并刷新列表。
+ */
 async function startTask(index, loop) {
   const task = currentTasks[index];
   if (!task) return;
@@ -813,6 +1128,9 @@ async function startTask(index, loop) {
   loadTasks();
 }
 
+/**
+ * stopTask — 停止正在运行的任务（终止子进程，循环任务同时取消循环）。
+ */
 async function stopTask(index) {
   const task = currentTasks[index];
   if (!task) return;
@@ -826,6 +1144,74 @@ async function stopTask(index) {
   loadTasks();
 }
 
+/**
+ * startAllClassLoop — 断点恢复：让后端把所有"未满分且未运行"的班级任务
+ * 以循环模式启动。后端返回启动数/跳过数。
+ */
+async function startAllClassLoop() {
+  if (!confirm("断点恢复：启动所有未满分班级任务（跳过运行中/已满分）？")) return;
+  const r = await fetch("/api/start_all", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  const j = await r.json();
+  if (!j.ok) { alert("启动失败: " + j.error); return; }
+  alert(`已启动 ${j.started} 个任务循环，跳过 ${j.skipped} 个（运行中/已满分）`);
+  loadTasks();
+}
+
+/* ============================================================
+   实时日志
+   ============================================================ */
+
+/**
+ * showLogs — 打开日志弹窗，绑定 activeLogKey 并启动 1.5s 轮询。
+ * @param loop 仅用于标题上显示 🔁 标识。
+ */
+async function showLogs(index, loop) {
+  const task = currentTasks[index];
+  if (!task) return;
+  activeLogKey = taskPayload(task, false);
+  document.getElementById("log-title").textContent = "📜 " + task.task_name + (loop ? " 🔁" : "");
+  document.getElementById("modal-logs").classList.add("show");
+  await refreshLogs();
+  if (logTimer) clearInterval(logTimer);
+  logTimer = setInterval(refreshLogs, 1500);
+}
+
+/** closeLogs — 关闭日志弹窗并停掉轮询。 */
+function closeLogs() {
+  activeLogKey = null;
+  document.getElementById("modal-logs").classList.remove("show");
+  if (logTimer) { clearInterval(logTimer); logTimer = null; }
+}
+
+/**
+ * refreshLogs — 按 activeLogKey 拉取最新日志并渲染。
+ * 若日志框原本在底部则自动跟随滚动到底（方便追新输出）；
+ * 任务结束后停轮询并刷新任务列表。
+ */
+async function refreshLogs() {
+  if (!activeLogKey) return;
+  try {
+    const qs = new URLSearchParams({ source: activeLogKey.source || "class", task_id: activeLogKey.task_id, release_id: activeLogKey.release_id });
+    const r = await fetch(`/api/logs?${qs.toString()}`);
+    const j = await r.json();
+    if (j.ok) {
+      const box = document.getElementById("log-content");
+      const wasBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
+      box.textContent = j.logs.join("\n");
+      if (wasBottom) box.scrollTop = box.scrollHeight;
+      if (j.done) { clearInterval(logTimer); logTimer = null; loadTasks(); }
+    }
+  } catch (e) {}
+}
+
+/* ============================================================
+   测试报告
+   ============================================================ */
+
+/**
+ * loadReports — 拉取 /api/reports 渲染报告列表卡片。
+ * 无报告时显示提示；有报告时展示 任务/总题/答对/跳过/正确率/来源分布。
+ */
 async function loadReports() {
   try {
     const r = await fetch("/api/reports");
@@ -844,11 +1230,13 @@ async function loadReports() {
       j.reports.map((s, i) => {
         const dist = Object.entries(s.src_dist || {}).map(([k, v]) => `${k}:${v}`).join(" · ");
         return `<tr>
-          <td>${escapeHtml(s.key)}</td>
-          <td>${s.total}</td><td>${s.ok}</td><td>${s.skip}</td>
-          <td style="color:${s.accuracy >= 90 ? "#34c759" : s.accuracy >= 60 ? "#ff9500" : "#ff3b30"}; font-weight:600">${s.accuracy}%</td>
-          <td style="font-size:12px;color:#667085;">${escapeHtml(dist)}</td>
-          <td><button onclick="showReportDetail('${escapeHtml(s.key)}')">查看</button></td>
+          <td data-label="任务"><span class="cell-val">${escapeHtml(s.key)}</span></td>
+          <td data-label="总题"><span class="cell-val">${s.total}</span></td>
+          <td data-label="答对"><span class="cell-val">${s.ok}</span></td>
+          <td data-label="跳过"><span class="cell-val">${s.skip}</span></td>
+          <td data-label="正确率"><span class="cell-val" style="color:${s.accuracy >= 90 ? "#34c759" : s.accuracy >= 60 ? "#ff9500" : "#ff3b30"}; font-weight:600">${s.accuracy}%</span></td>
+          <td data-label="来源分布"><span class="cell-val" style="font-size:12px;color:#667085;">${escapeHtml(dist)}</span></td>
+          <td data-label="明细"><span class="cell-val"><span class="btn-wrap"><button onclick="showReportDetail('${escapeHtml(s.key)}')">查看</button></span></span></td>
         </tr>`;
       }).join("")
     }</tbody></table>`;
@@ -857,6 +1245,11 @@ async function loadReports() {
   }
 }
 
+/**
+ * showReportDetail — 拉取单任务报告明细（最近 50 条），
+ * 在报告卡片内切换为明细表格；顶部有"返回列表"按钮。
+ * 同时 alert 弹窗给出汇总数字（任务/对/正确率/来源）。
+ */
 async function showReportDetail(key) {
   const r = await fetch(`/api/report?key=${encodeURIComponent(key)}`);
   const j = await r.json();
@@ -865,7 +1258,7 @@ async function showReportDetail(key) {
   const dist = Object.entries(st.src_dist || {}).map(([k, v]) => `${k}:${v}`).join(" · ");
   const rows = (j.recs || []).slice(-50).reverse().map((rec) => {
     const tag = rec.ok ? '<span style="color:#34c759">OK</span>' : '<span style="color:#ff3b30">✗</span>';
-    return `<tr><td style="font-size:11px;color:#666">${rec.mode}</td><td>${escapeHtml(rec.src)}</td><td>${tag}</td><td style="font-size:12px">${escapeHtml(rec.stem)}</td><td style="font-size:12px;color:#667085">${escapeHtml(rec.remark)}</td></tr>`;
+    return `<tr><td data-label="题型"><span class="cell-val" style="font-size:11px;color:#666">${rec.mode}</span></td><td data-label="来源"><span class="cell-val">${escapeHtml(rec.src)}</span></td><td data-label="结果"><span class="cell-val">${tag}</span></td><td data-label="题干"><span class="cell-val" style="font-size:12px">${escapeHtml(rec.stem)}</span></td><td data-label="备注"><span class="cell-val" style="font-size:12px;color:#667085">${escapeHtml(rec.remark)}</span></td></tr>`;
   }).join("");
   alert(`[${st.key}] 共${st.total}题 · 对${st.ok} · 正确率${st.accuracy}%
 来源: ${dist}`);
@@ -877,52 +1270,23 @@ async function showReportDetail(key) {
   }
 }
 
-async function startAllClassLoop() {
-  if (!confirm("断点恢复：启动所有未满分班级任务（跳过运行中/已满分）？")) return;
-  const r = await fetch("/api/start_all", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-  const j = await r.json();
-  if (!j.ok) { alert("启动失败: " + j.error); return; }
-  alert(`已启动 ${j.started} 个任务循环，跳过 ${j.skipped} 个（运行中/已满分）`);
-  loadTasks();
-}
+/* ============================================================
+   工具函数
+   ============================================================ */
 
-async function showLogs(index, loop) {
-  const task = currentTasks[index];
-  if (!task) return;
-  activeLogKey = taskPayload(task, false);
-  document.getElementById("log-title").textContent = "📜 " + task.task_name + (loop ? " 🔁" : "");
-  document.getElementById("modal-logs").classList.add("show");
-  await refreshLogs();
-  if (logTimer) clearInterval(logTimer);
-  logTimer = setInterval(refreshLogs, 1500);
-}
-
-function closeLogs() {
-  activeLogKey = null;
-  document.getElementById("modal-logs").classList.remove("show");
-  if (logTimer) { clearInterval(logTimer); logTimer = null; }
-}
-
-async function refreshLogs() {
-  if (!activeLogKey) return;
-  try {
-    const qs = new URLSearchParams({ source: activeLogKey.source || "class", task_id: activeLogKey.task_id, release_id: activeLogKey.release_id });
-    const r = await fetch(`/api/logs?${qs.toString()}`);
-    const j = await r.json();
-    if (j.ok) {
-      const box = document.getElementById("log-content");
-      const wasBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
-      box.textContent = j.logs.join("\n");
-      if (wasBottom) box.scrollTop = box.scrollHeight;
-      if (j.done) { clearInterval(logTimer); logTimer = null; loadTasks(); }
-    }
-  } catch (e) {}
-}
-
+/**
+ * escapeHtml — 转义 HTML 特殊字符，防止任务名等用户数据
+ * 注入页面（XSS 防护）。所有插入 innerHTML 的文本都应过一遍。
+ */
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 
+/* ============================================================
+   启动
+   - 页面加载：先读配置 → 拉任务 → 拉报告
+   - 之后每 5 秒自动刷新任务列表（分数/状态实时更新）
+   ============================================================ */
 loadConfig().then(loadTasks).then(loadReports);
 setInterval(loadTasks, 5000);
 </script>
