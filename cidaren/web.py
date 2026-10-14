@@ -537,6 +537,16 @@ _INDEX_HTML = r'''<!doctype html>
             <input id="MAX_ROUNDS" type="number" placeholder="10" />
             <small>未满分时最大重刷轮数。</small>
           </div>
+          <div class="field">
+            <label for="QUESTION_TIMEOUT">QUESTION_TIMEOUT</label>
+            <input id="QUESTION_TIMEOUT" type="number" placeholder="60" />
+            <small>单题超时秒数，超时自动跳过该题（防卡死）。</small>
+          </div>
+          <div class="field">
+            <label for="USE_WORD_API">USE_WORD_API</label>
+            <input id="USE_WORD_API" type="text" placeholder="1" />
+            <small>1 = 用查词接口辅助答题；0 = 禁用（弱网提速，纯题库+AI+试探）。</small>
+          </div>
         </div>
         <div class="bar" style="margin-top:18px; margin-bottom:0; justify-content:space-between;">
           <div id="env-path" class="status-box">.env 路径加载中...</div>
@@ -593,7 +603,7 @@ let activeLogKey = null;
 let logTimer = null;
 let currentTasks = [];
 let qrTimer = null;
-const CONFIG_KEYS = ["USERTOKEN","ABC","AUTH_V","COURSE_ID","STUDY_GRADE","LLM_URL","LLM_KEY","LLM_MODEL","LLM_MAX_TOKENS","AI_PRIORITY","DELAY_PER_QUESTION","MAX_ROUNDS"];
+const CONFIG_KEYS = ["USERTOKEN","ABC","AUTH_V","COURSE_ID","STUDY_GRADE","LLM_URL","LLM_KEY","LLM_MODEL","LLM_MAX_TOKENS","AI_PRIORITY","DELAY_PER_QUESTION","MAX_ROUNDS","QUESTION_TIMEOUT","USE_WORD_API"];
 
 async function loadConfig() {
   try {

@@ -103,6 +103,9 @@ def _query_means(ctx, word: str) -> list | None:
     defs = ctx.word_defs.get(w)
     if defs:
         return defs
+    # 弱网可关查词接口（USE_WORD_API=0），直接走 AI/空白试探
+    if not as_bool(ctx.config.get("USE_WORD_API"), True):
+        return None
     if not ctx.course_id or not ctx.now_unit:
         return None
     resp = ctx.client.query_word(ctx.course_id, ctx.now_unit, word)
@@ -130,18 +133,19 @@ def _query_means(ctx, word: str) -> list | None:
 
 
 def _word_revert_api(ctx, word: str) -> str:
-    """把单词转原型（用官方 SearchWord 接口，替代 easy 的 spaCy 依赖）。"""
-    try:
-        resp = ctx.client.search_word(word)
-        data = resp.get("data") or {}
-        meaning = (data.get("word_mean") or {}).get("meaning") or ""
-        if meaning:
-            decoded = bytes(meaning, "utf-8").decode("unicode_escape")
-            m = re.search(r'<span>(.+?)</span>', decoded)
-            if m:
-                return m.group(1)
-    except Exception:
-        pass
+    """把单词转原型（用官方 SearchWord 接口，替代 easy 的 spaCy 依赖）。弱网可跳过。"""
+    if as_bool(ctx.config.get("USE_WORD_API"), True):
+        try:
+            resp = ctx.client.search_word(word)
+            data = resp.get("data") or {}
+            meaning = (data.get("word_mean") or {}).get("meaning") or ""
+            if meaning:
+                decoded = bytes(meaning, "utf-8").decode("unicode_escape")
+                m = re.search(r'<span>(.+?)</span>', decoded)
+                if m:
+                    return m.group(1)
+        except Exception:
+            pass
     # 简单后缀规则兜底
     for suffix, repl in (("ies", "y"), ("es", ""), ("s", ""), ("ed", ""), ("ing", "")):
         if word.endswith(suffix) and len(word) > len(suffix) + 2:

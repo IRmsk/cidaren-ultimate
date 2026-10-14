@@ -40,6 +40,8 @@ CONFIG_FIELDS = [
     "AI_PRIORITY",
     # 答题节奏与重刷（Cidaren-AI 思路）
     "DELAY_PER_QUESTION", "MAX_ROUNDS",
+    # 防卡保护：单题超时秒数；USE_WORD_API=0 时禁用查词接口（弱网提速）
+    "QUESTION_TIMEOUT", "USE_WORD_API",
 ]
 
 DEFAULT_CONFIG = {
@@ -55,6 +57,8 @@ DEFAULT_CONFIG = {
     "AI_PRIORITY": "1",
     "DELAY_PER_QUESTION": "2",
     "MAX_ROUNDS": "10",
+    "QUESTION_TIMEOUT": "60",
+    "USE_WORD_API": "1",
 }
 
 REQUIRED_AUTH_FIELDS = ("USERTOKEN",)
@@ -146,6 +150,10 @@ def save_runtime_config(payload: dict) -> dict:
         "# 答题节奏(秒)与最大重刷轮数",
         f"DELAY_PER_QUESTION={_format_env_value(merged.get('DELAY_PER_QUESTION', ''))}",
         f"MAX_ROUNDS={_format_env_value(merged.get('MAX_ROUNDS', ''))}",
+        "",
+        "# 防卡保护: 单题超时(秒); USE_WORD_API=0 禁用查词接口(弱网提速)",
+        f"QUESTION_TIMEOUT={_format_env_value(merged.get('QUESTION_TIMEOUT', ''))}",
+        f"USE_WORD_API={_format_env_value(merged.get('USE_WORD_API', ''))}",
         "",
     ])
     ENV_FILE.write_text("\n".join(lines), encoding="utf-8")

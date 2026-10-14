@@ -8,7 +8,10 @@ runner.py — 任务执行器（整合 LangQi99 的任务流程 + Cidaren-AI 的
 from __future__ import annotations
 
 import random
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as _FutTimeout
 
 from . import bank as bk
 from .api import ApiError, SecurityVerifyError
@@ -16,6 +19,17 @@ from .config import as_int, get_runtime_config
 from .solver import TopicContext, setup_from_word_list, solve_topic
 
 MAX_PAGE = 20
+
+# 单题执行线程池：超时后丢弃旧线程、换新线程，保证永不卡死
+_executor = ThreadPoolExecutor(max_workers=1)
+_executor_lock = threading.Lock()
+
+
+def _refresh_executor():
+    global _executor
+    with _executor_lock:
+        _executor.shutdown(wait=False)
+        _executor = ThreadPoolExecutor(max_workers=1)
 
 
 def _get_topic(resp):
@@ -140,7 +154,8 @@ def run_one_round(ctx: TopicContext, task_id, release_id, log=print):
     done, total = d.get("topic_done_num", 0), d.get("topic_total", 0)
     log(f"  [开始] {done}/{total}")
 
-    # 3. 逐题循环
+    # 3. 逐题循环（单题超时保护：线程池 + QUESTION_TIMEOUT 秒强制跳过）
+    question_timeout = max(15, as_int(ctx.config.get("QUESTION_TIMEOUT"), 60))
     guard = 0
     while topic and topic.get("topic_code"):
         guard += 1
@@ -148,9 +163,23 @@ def run_one_round(ctx: TopicContext, task_id, release_id, log=print):
             log("  [保护] 超过 2000 题，强制结束本轮")
             break
         code = topic["topic_code"]
+        qnum = done + 1
+        log(f"  [题 {qnum}/{total or '?'}] 开始")
         next_resp = None
+        future = _executor.submit(solve_topic, ctx, topic, log)
         try:
-            next_resp = solve_topic(ctx, topic, log=log)
+            next_resp = future.result(timeout=question_timeout)
+        except _FutTimeout:
+            log(f"  [题 {qnum}] 超时 {question_timeout}s 无响应，强制跳过该题")
+            _refresh_executor()  # 丢弃卡死的线程，换新线程继续
+            try:
+                if ctx.is_study:
+                    next_resp = ctx.client.study_submit(code, 20000)
+                else:
+                    next_resp = ctx.client.submit(code, 20000)
+            except (ApiError, SecurityVerifyError) as e:
+                log(f"  [题 {qnum}] 跳过提交失败: {e}，尝试继续")
+                continue
         except SecurityVerifyError as e:
             log(f"  [风控] {e}，本轮终止")
             return None

@@ -45,7 +45,7 @@ def _sleep(lo=1.0, hi=2.5):
 
 
 class Client:
-    def __init__(self, usertoken: str, abc: str = "", auth_v: str = "", ua: str = "", timeout: int = 20):
+    def __init__(self, usertoken: str, abc: str = "", auth_v: str = "", ua: str = "", timeout: int = 12):
         self.timeout = timeout
         self.s = requests.Session()
         headers = {
@@ -65,7 +65,7 @@ class Client:
         self.s.headers.update(headers)
 
     # ---- 基础请求 ----
-    def _get(self, path: str, params: dict, base: str = BASE, retries: int = 3):
+    def _get(self, path: str, params: dict, base: str = BASE, retries: int = 2):
         params = {**params, "timestamp": _ms(), "version": VERSION, "app_type": 1}
         last = None
         for attempt in range(retries):
@@ -79,7 +79,7 @@ class Client:
                     continue
         raise ApiError(f"GET {path} 网络失败: {last}")
 
-    def _post(self, path: str, body: dict, base: str = BASE, retries: int = 3):
+    def _post(self, path: str, body: dict, base: str = BASE, retries: int = 2):
         body = {**body, "timestamp": _ms(), "version": VERSION}
         body["sign"] = sign(body)
         body["app_type"] = 1
