@@ -209,11 +209,29 @@ class TestLLMConnectivity(unittest.TestCase):
             @property
             def text(self):
                 return "ok"
-        with mock.patch("cidaren.ai.requests.post", return_value=FakeResp()):
+        with mock.patch("cidaren.ai.requests.post", return_value=FakeResp()) as m:
             r = test_llm_connectivity("https://api.deepseek.com", "sk-test", "deepseek-chat")
         self.assertTrue(r["ok"])
         self.assertEqual(r["reply"], "正常")
         self.assertGreaterEqual(r["latency_ms"], 0)
+
+    def test_max_tokens_string_normalized(self):
+        """前端传字符串 max_tokens（如 \"1024\"）必须转成整数再发出，否则严格网关报 422。"""
+        from unittest import mock
+        class FakeResp:
+            status_code = 200
+            def json(self):
+                return {"choices": [{"message": {"content": "正常"}}]}
+            @property
+            def text(self):
+                return "ok"
+        with mock.patch("cidaren.ai.requests.post", return_value=FakeResp()) as m:
+            r = test_llm_connectivity("https://api.deepseek.com", "sk-test", "deepseek-chat",
+                                      max_tokens="1024")
+        self.assertTrue(r["ok"])
+        sent = m.call_args.kwargs["json"]
+        self.assertIsInstance(sent["max_tokens"], int)
+        self.assertEqual(sent["max_tokens"], 1024)
 
     def test_unauthorized(self):
         from unittest import mock

@@ -194,6 +194,8 @@ def test_llm_connectivity(llm_url: str, llm_key: str,
     llm_url = (llm_url or "").strip()
     llm_key = (llm_key or "").strip()
     llm_model = (llm_model or "deepseek-chat").strip() or "deepseek-chat"
+    # 前端表单传来的是字符串（如 "1024"），严格校验的网关要求 max_tokens 是整数
+    max_tokens = as_int(max_tokens, 32)
     if not llm_url:
         return {"ok": False, "latency_ms": 0, "reply": "", "error": "未填写 LLM_URL"}
     if not llm_key:
