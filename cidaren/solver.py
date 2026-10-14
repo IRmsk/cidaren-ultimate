@@ -799,14 +799,40 @@ def solve_topic(ctx: TopicContext, topic: dict, log=lambda s: None):
             src = "llm"
             ctx.stats["ai"] += 1
 
-    # 5. 题库/AI/规则都答不上：不盲猜，直接空白试探拿标准答案
-    if answer is None:
-        logf("?", "题库/AI/规则均无解，转空白试探", " [probe]")
-        return _blank_probe(ctx, topic, key, stem, code, mode, logf)
+    # 5. 题库/AI/规则都答不上：AI 二次兜底（首次可能因超时/限速失败），不行转空白试探
+    if answer is None and ai_priority:
+        answer2 = llm_answer(topic, ctx.word_defs, ctx.word_list, ctx.config)
+        if answer2 is not None:
+            answer, src = answer2, "ai"
+            ctx.stats["ai"] += 1
 
-    logf("?", "答题", f" [{src}]")
+    if answer is not None:
+        logf("?", "答题", f" [{src}]")
+        resp, need_probe = _commit_answer(ctx, topic, key, stem, remark, code, answer, src, mode, logf)
+        if resp is not None:
+            return resp
+        if need_probe:
+            # 首次判错且服务端没给纠错：AI 再组合一次（rule!wrong 是 32 型丢分主因，
+            # 首次 AI/规则失败往往是超时或词表反查错，AI 带选项词池二次尝试能救回一部分）
+            answer2 = llm_answer(topic, ctx.word_defs, ctx.word_list, ctx.config)
+            if answer2 is not None and str(answer2) != str(answer):
+                logf("?", "AI 二次组合", " [ai]")
+                resp2, need2 = _commit_answer(ctx, topic, key, stem, remark, code, answer2, "ai", mode, logf)
+                if resp2 is not None:
+                    return resp2
+            _report(ctx, mode, src + "!wrong", 0, stem, remark, answer)
+            logf("?", "仍无解，转空白试探", " [probe]")
+            return _blank_probe(ctx, topic, key, stem, code, mode, logf)
+        return resp
 
-    # 尝试 verify
+    logf("?", "题库/AI/规则均无解，转空白试探", " [probe]")
+    return _blank_probe(ctx, topic, key, stem, code, mode, logf)
+
+
+def _commit_answer(ctx, topic, key, stem, remark, code, answer, src, mode, logf):
+    """验证并提交答案：OK 记分入库 / FIX 用服务端纠错答案补交。
+    返回 (resp, need_probe)：resp=下一题响应或 None；need_probe=True 表示判错且无纠错。
+    """
     code, ar, corrects, over = _verify_and_learn(ctx, topic, code, answer, mode, logf)
     if ar == 1:
         ctx.stats["ok"] += 1
@@ -815,19 +841,14 @@ def solve_topic(ctx: TopicContext, topic: dict, log=lambda s: None):
             _learn_from_success(ctx, topic, answer, mode, src)
         _report(ctx, mode, src, 1, stem, remark, answer)
         logf("OK", _disp_answer(topic, answer, mode), f" [{src}]")
-        return _submit_next(ctx, code, random.randint(8000, 12000))
-
-    # 判错：corrects 已入库，用 corrects 再提交
+        return _submit_next(ctx, code, random.randint(8000, 12000)), False
     if corrects:
         final_ans = _norm_corrects_answer(corrects, mode, stem)
         bk.bank_add(key, final_ans, stem)
         _report(ctx, mode, "fix", 1, stem, remark, final_ans)
         logf("FIX", _disp_answer(topic, final_ans, mode), " [corrects]")
-        return _submit_next(ctx, code, random.randint(8000, 12000))
-
-    # 答错且无纠错：也不猜，直接空白试探
-    _report(ctx, mode, src + "!wrong", 0, stem, remark, answer)
-    return _blank_probe(ctx, topic, key, stem, code, mode, logf)
+        return _submit_next(ctx, code, random.randint(8000, 12000)), False
+    return None, True
 
 
 def _solve_collocation(ctx, topic, log, logf):

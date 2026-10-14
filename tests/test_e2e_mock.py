@@ -67,9 +67,9 @@ class TestE2EMock(unittest.TestCase):
         runner.run_full(client, 1002, 2002, config=self._cfg(), log=logs.append, task_type=1)
         stats = report.report_stats("class-1002-2002")
         self.assertGreater(stats["total"], 0)
-        # 每道题都有结果：答对 + 跳过 + 学习卡片 = 总数
+        # 每道题都有结果：答对 + 跳过 = 总数（学习卡片不参与判分统计）
         self.assertLessEqual(stats["ok"] + stats["skip"], stats["total"])
-        self.assertEqual(stats["ok"] + stats["skip"] + stats["src_dist"].get("card", 0), stats["total"])
+        self.assertEqual(stats["ok"] + stats["skip"], stats["total"])
         # 题库自学习生效：第二次/同指纹题命中 cache（或首轮 rule/blank 试探）
         dist = stats["src_dist"]
         self.assertGreaterEqual(dist.get("cache", 0) + dist.get("rule", 0) + dist.get("blank", 0), 1)

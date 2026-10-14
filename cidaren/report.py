@@ -63,9 +63,11 @@ def report_load(key: str) -> list:
 
 def report_stats(key: str) -> dict:
     recs = report_load(key)
-    total = len(recs)
-    ok = sum(1 for r in recs if r.get("ok"))
-    skip = sum(1 for r in recs if r.get("src") in ("skip", "blank"))
+    # 学习卡片(mode 0 / src=card)是"收集释义并跳过"，不参与判分统计，排除后正确率更真实
+    judge = [r for r in recs if r.get("src") != "card"]
+    total = len(judge)
+    ok = sum(1 for r in judge if r.get("ok"))
+    skip = sum(1 for r in judge if r.get("src") in ("skip", "blank"))
     src_dist = {}
     mode_dist = {}
     for r in recs:
