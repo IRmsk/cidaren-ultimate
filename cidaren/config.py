@@ -167,6 +167,11 @@ def save_runtime_config(payload: dict) -> dict:
         "",
     ])
     ENV_FILE.write_text("\n".join(lines), encoding="utf-8")
+    # 配置文件含 USERTOKEN 等敏感凭据，限制为仅所有者可读写
+    try:
+        os.chmod(ENV_FILE, 0o600)
+    except OSError:
+        pass  # Windows 等不支持 chmod 的平台忽略
     for key in CONFIG_FIELDS:
         os.environ[key] = merged.get(key, DEFAULT_CONFIG.get(key, ""))
     return merged

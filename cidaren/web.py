@@ -59,6 +59,25 @@ LOG_MAX = 800  # 每个任务最多保留的日志行数（环形缓冲，防内
 QR_STATE = {"token": None, "started": 0.0}
 QR_LOCK = threading.Lock()
 
+# ------------------------------------------------------------------
+# Web 面板访问控制
+#   绑定 127.0.0.1 时无需密码（仅本地可访问）
+#   绑定非本地地址时强制密码（CIDAREN_PASSWORD 环境变量，未设置则自动生成随机密码并打印）
+# ------------------------------------------------------------------
+_WEB_PASSWORD = ""
+_WEB_AUTH_ENABLED = False
+
+
+@app.before_request
+def _check_web_auth():
+    """非本地绑定时所有请求需带密码（query 参数 ?token= 或 Header X-Cidaren-Token）。"""
+    if not _WEB_AUTH_ENABLED:
+        return None
+    token = request.args.get("token") or request.headers.get("X-Cidaren-Token", "")
+    if token != _WEB_PASSWORD:
+        return Response("Unauthorized: 请在地址后加 ?token=你的面板密码\n", status=401)
+    return None
+
 
 def _job_key(source, task_id, release_id):
     """生成任务唯一键：(来源, 任务ID, 发布ID) 三元组。"""
@@ -309,7 +328,7 @@ def api_test_llm():
     llm_key = (body.get("llm_key") or cfg.get("LLM_KEY") or "").strip()
     llm_model = (body.get("llm_model") or cfg.get("LLM_MODEL") or "").strip()
     max_tokens = body.get("llm_max_tokens") or cfg.get("LLM_MAX_TOKENS") or 32
-    result = ai_mod.test_llm_connectivity(llm_url, llm_key, llm_model, max_tokens)
+    result = ai_mod.check_llm_connectivity(llm_url, llm_key, llm_model, max_tokens)
     return jsonify(result)
 
 
@@ -1458,12 +1477,27 @@ setInterval(loadTasks, 5000);
 
 
 def main():
+    global _WEB_PASSWORD, _WEB_AUTH_ENABLED
     # Termux / 局域网适配：CIDAREN_HOST / CIDAREN_PORT 环境变量可覆盖监听地址
     host = os.environ.get("CIDAREN_HOST", "127.0.0.1")
     try:
         port = int(os.environ.get("CIDAREN_PORT", "5000"))
     except (TypeError, ValueError):
         port = 5000
+
+    # 非本地绑定强制密码：防止局域网内任何人都能操作面板
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        _WEB_AUTH_ENABLED = True
+        _WEB_PASSWORD = os.environ.get("CIDAREN_PASSWORD", "")
+        if not _WEB_PASSWORD:
+            import secrets
+            _WEB_PASSWORD = secrets.token_urlsafe(12)
+            print(f"[安全] 未设置 CIDAREN_PASSWORD，已自动生成随机面板密码: {_WEB_PASSWORD}")
+            print(f"[安全] 访问方式: http://{host}:{port}/?token={_WEB_PASSWORD}")
+        else:
+            print(f"[安全] 面板密码已从 CIDAREN_PASSWORD 读取")
+        print(f"[安全] 如需关闭密码验证，请绑定 127.0.0.1 并通过 SSH 端口转发访问")
+
     print(f"cidaren-ultimate Web 控制台: http://{host}:{port}")
     print(f"配置文件: {env_file_path()}")
     app.run(host=host, port=port, debug=False, threaded=True)

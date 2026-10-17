@@ -183,7 +183,7 @@ def llm_answer(topic: dict, word_defs: dict = None, task_words: list = None, con
     return None
 
 
-def test_llm_connectivity(llm_url: str, llm_key: str,
+def check_llm_connectivity(llm_url: str, llm_key: str,
                           llm_model: str = "deepseek-chat",
                           max_tokens: int = 32) -> dict:
     """测试 LLM 接口连通性：发一个最小请求并返回结构化结果。

@@ -115,8 +115,8 @@ def run_one_round(ctx: TopicContext, task_id, release_id, log=print):
                 ctx.word_dict[zh] = unquote(en)
         if pool:
             log(f"  [词表] 全局词表已挂载 {len(pool)} 条")
-    except Exception:
-        pass
+    except Exception as e:
+        log(f"  [词表] 挂载全局词表失败: {e}")
     log(f"  [词表] 共 {len(words)} 词")
     todo = [w for w in words if w.get("score", 0) < 10]
     if todo:
@@ -216,8 +216,8 @@ def run_one_round(ctx: TopicContext, task_id, release_id, log=print):
         log(f"  [轮报] 答对 {delta.get('ok', 0)} · 首错 {delta.get('wrong', 0)} · "
             f"跳过 {delta.get('skip', 0)} · 来源: 题库 {delta.get('cache', 0)} · "
             f"规则 {delta.get('rule', 0)} · AI {delta.get('ai', 0)} · 试探 {delta.get('blank', 0)}")
-    except Exception:
-        pass
+    except Exception as e:
+        log(f"  [轮报] 汇总失败: {e}")
 
     # 5. 签到
     try:

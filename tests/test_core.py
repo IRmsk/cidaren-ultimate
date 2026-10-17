@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cidaren import crypto, bank, solver
-from cidaren.ai import parse_llm_answer, test_llm_connectivity
+from cidaren.ai import parse_llm_answer, check_llm_connectivity
 from cidaren.solver import (_build_phrase_answer, _complete_spelling, _match_tips_words,
                             _template_slots, _topic_key, _is_collocation)
 from cidaren.config import set_env_file, get_runtime_config
@@ -204,12 +204,12 @@ class TestLLMConnectivity(unittest.TestCase):
     """AI 连接测试函数（Web「测试 AI 连接」按钮后端）。"""
 
     def test_missing_url(self):
-        r = test_llm_connectivity("", "sk-x")
+        r = check_llm_connectivity("", "sk-x")
         self.assertFalse(r["ok"])
         self.assertIn("LLM_URL", r["error"])
 
     def test_missing_key(self):
-        r = test_llm_connectivity("https://api.deepseek.com", "")
+        r = check_llm_connectivity("https://api.deepseek.com", "")
         self.assertFalse(r["ok"])
         self.assertIn("LLM_KEY", r["error"])
 
@@ -223,7 +223,7 @@ class TestLLMConnectivity(unittest.TestCase):
             def text(self):
                 return "ok"
         with mock.patch("cidaren.ai.requests.post", return_value=FakeResp()) as m:
-            r = test_llm_connectivity("https://api.deepseek.com", "sk-test", "deepseek-chat")
+            r = check_llm_connectivity("https://api.deepseek.com", "sk-test", "deepseek-chat")
         self.assertTrue(r["ok"])
         self.assertEqual(r["reply"], "正常")
         self.assertGreaterEqual(r["latency_ms"], 0)
@@ -239,7 +239,7 @@ class TestLLMConnectivity(unittest.TestCase):
             def text(self):
                 return "ok"
         with mock.patch("cidaren.ai.requests.post", return_value=FakeResp()) as m:
-            r = test_llm_connectivity("https://api.deepseek.com", "sk-test", "deepseek-chat",
+            r = check_llm_connectivity("https://api.deepseek.com", "sk-test", "deepseek-chat",
                                       max_tokens="1024")
         self.assertTrue(r["ok"])
         sent = m.call_args.kwargs["json"]
@@ -254,7 +254,7 @@ class TestLLMConnectivity(unittest.TestCase):
             def text(self):
                 return "unauthorized"
         with mock.patch("cidaren.ai.requests.post", return_value=Fake401()):
-            r = test_llm_connectivity("https://api.deepseek.com", "sk-bad")
+            r = check_llm_connectivity("https://api.deepseek.com", "sk-bad")
         self.assertFalse(r["ok"])
         self.assertIn("401", r["error"])
 
