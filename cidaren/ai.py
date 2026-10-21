@@ -56,7 +56,7 @@ def build_prompt(topic: dict, word_defs: dict = None, task_words: list = None) -
             f"{wd_str}题目: 以下哪个是单词「{stem}」的正确释义?\n选项:\n{opts_str}\n\n"
             "只回答选项编号(如: 0), 不要其他文字。"
         )
-    if mode == 11:
+    if mode == 11 or mode in (13, 15, 16, 17, 18, 21, 22, 41, 42, 43, 44):
         rk = f"句子中文翻译(参考): {remark}\n" if remark else ""
         return (
             f"{wd_str}题目: 根据句意选择句中 {{}} 内单词的正确释义\n句子: {stem}\n{rk}选项:\n{opts_str}\n\n"
