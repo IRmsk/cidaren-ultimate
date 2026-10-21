@@ -16,11 +16,11 @@ import re
 import time
 import urllib.parse
 
-from . import bank as bk
-from . import ocr as ocr_mod
+from ..core import bank as bk
+from ..core import ocr as ocr_mod
 from . import report as rp
-from .ai import llm_answer
-from .config import as_bool, as_int, get_runtime_config
+from ..core.ai import llm_answer
+from ..core.config import as_bool, as_int, get_runtime_config
 
 _WORD_PAT = re.compile(r'\{(\w+)\}')
 

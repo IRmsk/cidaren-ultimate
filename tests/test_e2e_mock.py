@@ -8,8 +8,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cidaren import api, bank, mock_server, report, runner
-from cidaren.api import Client
+from cidaren.core import api, bank; from cidaren.solver import report, runner; from cidaren import mock_server
+from cidaren.core.api import Client
 
 
 def _free_port() -> int:

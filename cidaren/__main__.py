@@ -11,18 +11,18 @@ from __future__ import annotations
 
 import sys
 
-from .config import log
+from .core.config import log
 
 
 def main():
     args = sys.argv[1:]
     if not args:
-        from .web import main as web_main
+        from .web.app import main as web_main
         web_main()
         return
     if args[0] == "check":
-        from .config import get_missing_auth_fields, get_runtime_config
-        from .login import is_token_valid
+        from .core.config import get_missing_auth_fields, get_runtime_config
+        from .core.login import is_token_valid
         cfg = get_runtime_config()
         missing = get_missing_auth_fields(cfg)
         if missing:
@@ -36,9 +36,9 @@ def main():
         return
     if args[0] == "resume":
         """断点恢复：列出所有未满分班级任务并逐个刷（循环到满分）。"""
-        from .api import Client, ApiError
-        from .config import get_missing_auth_fields, get_runtime_config
-        from .runner import run_full
+        from .core.api import Client, ApiError
+        from .core.config import get_missing_auth_fields, get_runtime_config
+        from .solver.runner import run_full
         cfg = get_runtime_config()
         missing = get_missing_auth_fields(cfg)
         if missing:
@@ -77,9 +77,9 @@ def main():
                 log(f"任务异常: {e}")
         return
     if args[0] == "class":
-        from .api import Client
-        from .config import get_missing_auth_fields, get_runtime_config
-        from .runner import run_full
+        from .core.api import Client
+        from .core.config import get_missing_auth_fields, get_runtime_config
+        from .solver.runner import run_full
         cfg = get_runtime_config()
         missing = get_missing_auth_fields(cfg)
         if missing:
@@ -91,9 +91,9 @@ def main():
         run_full(client, task_id, release_id, config=cfg, task_type=task_type)
         return
     if args[0] == "study":
-        from .api import Client
-        from .config import get_missing_auth_fields, get_runtime_config
-        from .runner import run_study_full
+        from .core.api import Client
+        from .core.config import get_missing_auth_fields, get_runtime_config
+        from .solver.runner import run_study_full
         cfg = get_runtime_config()
         missing = get_missing_auth_fields(cfg)
         if missing:

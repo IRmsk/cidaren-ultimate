@@ -28,10 +28,10 @@ from collections import deque
 
 from flask import Flask, jsonify, request, Response
 
-from . import bank as bk
-from . import report as rp
-from . import ai as ai_mod
-from .config import (
+from ..core import bank as bk
+from ..solver import report as rp
+from ..core import ai as ai_mod
+from ..core.config import (
     build_subprocess_env,
     env_file_path,
     get_missing_auth_fields,
@@ -105,7 +105,7 @@ def _find_job(source, task_id, release_id):
 
 def _client(config=None):
     """构造词达人 API 客户端；缺鉴权字段时抛出带提示的 ValueError。"""
-    from .api import Client
+    from ..core.api import Client
     cfg = config or get_runtime_config()
     missing = get_missing_auth_fields(cfg)
     if missing:
@@ -347,7 +347,7 @@ def api_tasks():
 @app.route("/api/token_check")
 def api_token_check():
     """校验 USERTOKEN 有效性，返回学生姓名或错误信息。"""
-    from .login import is_token_valid
+    from .core.login import is_token_valid
     cfg = get_runtime_config()
     missing = get_missing_auth_fields(cfg)
     if missing:
@@ -362,7 +362,7 @@ def api_token_check():
 @app.route("/api/login_qr", methods=["POST"])
 def api_login_qr():
     """生成扫码登录二维码。返回 user_token / base64 图片 / 授权链接。"""
-    from .login import qr_authorize
+    from .core.login import qr_authorize
     try:
         with QR_LOCK:
             session = qr_authorize()
@@ -381,7 +381,7 @@ def api_login_qr():
 @app.route("/api/login_poll")
 def api_login_poll():
     """轮询扫码结果。成功后把 USERTOKEN 写进配置并返回学生姓名。"""
-    from .login import is_token_valid
+    from .core.login import is_token_valid
     with QR_LOCK:
         token = QR_STATE.get("token")
         started = QR_STATE.get("started", 0)
