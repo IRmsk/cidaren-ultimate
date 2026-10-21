@@ -1,6 +1,6 @@
 # cidaren-ultimate
 
-**词汇学习自动化框架（v2.6.1）**：融合 5 个开源项目的工程实践，多源答案融合 + 自学习题库 + Mock Server E2E 测试。纯 Python，Web 控制台 + CLI 双入口，Termux 可直接运行。
+**词汇学习自动化框架（v2.6.3）**：融合 5 个开源项目的工程实践，多源答案融合 + 自学习题库 + Mock Server E2E 测试。纯 Python，Web 控制台 + CLI 双入口，Termux 可直接运行。
 
 > 本项目为个人学习与工程研究用途，探索多源信息融合、自学习缓存、无凭证集成测试等技术模式。
 
@@ -8,20 +8,22 @@
 ├── main.py              # 入口：Web 控制台 / CLI
 ├── requirements.txt     # flask + requests + qrcode，无重型依赖
 ├── .env.example         # 配置模板（不含任何真实密钥）
-├── cidaren/
+├── core/                # 核心功能
 │   ├── config.py        # 配置管理（.env + 环境变量）
 │   ├── crypto.py        # 接口加解密：sign 签名 + jv 解密
-│   ├── api.py           # API 客户端
-│   ├── bank.py          # 三库合一答案库：题库缓存 + 短语库 + 单词库（自学习，跨进程文件锁）
-│   ├── ai.py            # LLM 客户端（OpenAI 兼容，按题型定制 prompt）
-│   ├── login.py         # 微信扫码登录
-│   ├── solver.py        # 全题型答题引擎（19 种题型，多源融合）
-│   ├── runner.py        # 任务执行器（多轮重试、卡住检测、断点恢复、单题超时保护）
-│   ├── ocr.py           # 图片题干/选项识别（LLM / tesseract / 百度 OCR）
-│   ├── report.py        # 答题报告：每题判分与来源归因统计
-│   ├── mock_server.py   # 本地模拟服务端（无账号也能跑 E2E 测试）
-│   ├── web.py           # Web 控制台（配置/任务/日志/扫码/报告）
-│   └── data/            # 内置词表 + 本地答案库（自动累积）
+│   ├── api.py          # API 客户端
+│   ├── bank.py         # 三库合一答案库：题库缓存 + 短语库 + 单词库（自学习，跨进程文件锁）
+│   ├── ai.py           # LLM 客户端（OpenAI 兼容，按题型定制 prompt）
+│   ├── login.py        # 微信扫码登录
+│   └── ocr.py          # 图片题干/选项识别（LLM / tesseract / 百度 OCR）
+├── solver/              # 答题逻辑
+│   ├── solver.py       # 全题型答题引擎（19 种题型，多源融合）
+│   ├── runner.py       # 任务执行器（多轮重试、卡住检测、断点恢复、单题超时保护）
+│   └── report.py       # 答题报告：每题判分与来源归因统计
+├── web/                 # Web 控制台
+│   └── app.py          # Flask 应用（配置/任务/日志/扫码/报告）
+├── data/                # 内置词表 + 本地答案库（自动累积）
+├── mock_server.py      # 本地模拟服务端（无账号也能跑 E2E 测试）
 └── tests/               # 28 项测试（核心逻辑 + mock E2E）
 ```
 
@@ -129,6 +131,8 @@ python main.py
 | v2.5 | 轮报汇总 + 卡住/放弃原因明细 |
 | v2.6 | 题库语义兜底：按中文短语匹配，重刷命中率提升 |
 | v2.6.1 | AI 二次兜底 + 报告排除学习卡片噪音 |
+| v2.6.2 | 重构目录结构：去掉嵌套 cidaren/ 文件夹，core/solver/web 直接放根目录 |
+| v2.6.3 | 跳过已截止任务（修复 Cidaren-AI bug#3） |
 
 ## 免责声明
 
