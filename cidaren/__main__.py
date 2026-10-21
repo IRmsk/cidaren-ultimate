@@ -44,14 +44,15 @@ def main():
         if missing:
             raise SystemExit(f"缺少必要配置: {', '.join(missing)}")
         client = Client(cfg["USERTOKEN"], cfg.get("ABC", ""), cfg.get("AUTH_V", ""))
-        # 自动签到
-        try:
-            signin_resp = client.signin()
-            signin_data = signin_resp.get("data") or {}
-            if signin_data:
-                log(f"🏆 签到完成：累计 {signin_data.get('sign_in_total', '?')} 天，积分 +{signin_data.get('integral', '?')}")
-        except Exception as e:
-            log(f"签到失败（不影响刷题）: {e}")
+        # 自动签到（默认关闭，需在 .env 设置 SIGNIN_ENABLED=1 开启）
+        if str(cfg.get("SIGNIN_ENABLED", "0")) == "1":
+            try:
+                signin_resp = client.signin()
+                signin_data = signin_resp.get("data") or {}
+                if signin_data:
+                    log(f"🏆 签到完成：累计 {signin_data.get('sign_in_total', '?')} 天，积分 +{signin_data.get('integral', '?')}")
+            except Exception as e:
+                log(f"签到失败（不影响刷题）: {e}")
         tasks, page = [], 1
         while page <= 20:
             resp = client.page_task(page=page, size=50)
