@@ -28,10 +28,10 @@ from collections import deque
 
 from flask import Flask, jsonify, request, Response
 
-from ..core import bank as bk
-from ..solver import report as rp
-from ..core import ai as ai_mod
-from ..core.config import (
+from core import bank as bk
+from solver import report as rp
+from core import ai as ai_mod
+from core.config import (
     build_subprocess_env,
     env_file_path,
     get_missing_auth_fields,
@@ -105,7 +105,7 @@ def _find_job(source, task_id, release_id):
 
 def _client(config=None):
     """构造词达人 API 客户端；缺鉴权字段时抛出带提示的 ValueError。"""
-    from ..core.api import Client
+    from core.api import Client
     cfg = config or get_runtime_config()
     missing = get_missing_auth_fields(cfg)
     if missing:

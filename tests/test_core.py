@@ -9,11 +9,12 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cidaren.core import crypto, bank; from cidaren.solver import solver
-from cidaren.core.ai import parse_llm_answer, check_llm_connectivity
-from cidaren.solver.solver import (_build_phrase_answer, _complete_spelling, _match_tips_words,
+from core import crypto, bank
+from solver import solver
+from core.ai import parse_llm_answer, check_llm_connectivity
+from solver.solver import (_build_phrase_answer, _complete_spelling, _match_tips_words,
                             _template_slots, _topic_key, _is_collocation)
-from cidaren.core.config import set_env_file, get_runtime_config
+from core.config import set_env_file, get_runtime_config
 
 
 class TestCrypto(unittest.TestCase):
@@ -173,7 +174,7 @@ class TestSolverPure(unittest.TestCase):
 
     def test_complete_spelling_infer_len(self):
         """w_lens 缺失时，从题干下划线推断长度筛选候选。"""
-        from cidaren.solver.solver import _candidate_words
+        from solver.solver import _candidate_words
         topic = {
             "topic_mode": 73,
             "stem": {"content": "绿色存储: g _ _ _ _ _", "remark": "绿色存储"},
@@ -190,7 +191,7 @@ class TestSolverPure(unittest.TestCase):
 
     def test_complete_sentence_infer_len(self):
         """mode 51-54 无 w_len 时用推断长度匹配。"""
-        from cidaren.solver.solver import _complete_sentence
+        from solver.solver import _complete_sentence
         topic = {
             "topic_mode": 51,
             "stem": {"content": "g _ _ _ _ _", "remark": ""},
@@ -222,7 +223,7 @@ class TestLLMConnectivity(unittest.TestCase):
             @property
             def text(self):
                 return "ok"
-        with mock.patch("cidaren.core.ai.requests.post", return_value=FakeResp()) as m:
+        with mock.patch("core.ai.requests.post", return_value=FakeResp()) as m:
             r = check_llm_connectivity("https://api.deepseek.com", "sk-test", "deepseek-chat")
         self.assertTrue(r["ok"])
         self.assertEqual(r["reply"], "正常")
@@ -238,7 +239,7 @@ class TestLLMConnectivity(unittest.TestCase):
             @property
             def text(self):
                 return "ok"
-        with mock.patch("cidaren.core.ai.requests.post", return_value=FakeResp()) as m:
+        with mock.patch("core.ai.requests.post", return_value=FakeResp()) as m:
             r = check_llm_connectivity("https://api.deepseek.com", "sk-test", "deepseek-chat",
                                       max_tokens="1024")
         self.assertTrue(r["ok"])
@@ -253,7 +254,7 @@ class TestLLMConnectivity(unittest.TestCase):
             @property
             def text(self):
                 return "unauthorized"
-        with mock.patch("cidaren.core.ai.requests.post", return_value=Fake401()):
+        with mock.patch("core.ai.requests.post", return_value=Fake401()):
             r = check_llm_connectivity("https://api.deepseek.com", "sk-bad")
         self.assertFalse(r["ok"])
         self.assertIn("401", r["error"])
