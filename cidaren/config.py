@@ -58,6 +58,8 @@ CONFIG_FIELDS = [
     "QUESTION_TIMEOUT", "USE_WORD_API",
     # OCR 读图：off=关闭；llm=大模型视觉；tesseract=本地OCR；baidu=百度OCR
     "OCR_MODE", "BAIDU_OCR_AK", "BAIDU_OCR_SK",
+    # 自动签到：0=关闭（默认）；1=开启
+    "SIGNIN_ENABLED",
 ]
 
 DEFAULT_CONFIG = {
