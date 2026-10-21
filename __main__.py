@@ -10,8 +10,19 @@ __main__.py — CLI 入口
 from __future__ import annotations
 
 import sys
+import time
 
 from .core.config import log
+
+
+def _is_task_expired(task):
+    """判断任务是否已截止（参考 Cidaren-AI 思路）"""
+    now_ms = round(time.time() * 1000)
+    start = task.get("start_time", 0)
+    over = task.get("over_time", 0)
+    if start and over and (start + over) <= now_ms:
+        return True
+    return False
 
 
 def main():
@@ -63,9 +74,9 @@ def main():
             if len(recs) < 50:
                 break
             page += 1
-        todo = [t for t in tasks if t.get("score", 0) < 100]
+        todo = [t for t in tasks if t.get("score", 0) < 100 and not _is_task_expired(t)]
         if not todo:
-            log("没有未完成的任务，全部已满分。")
+            log("没有未完成的任务，全部已满分或已截止。")
             return
         log(f"待续任务 {len(todo)} 个，开始逐个刷满...")
         for i, t in enumerate(todo, 1):
