@@ -7,9 +7,23 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+LOG_PATH = BASE_DIR / "run.log"
+
+
+def log(msg: str, end: str = "\n"):
+    """输出到控制台 + 写日志文件。"""
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] {msg}"
+    print(line, end=end, flush=True)
+    try:
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(line + end)
+    except Exception:
+        pass
 
 
 def _resolve_env_file(path=None) -> Path:

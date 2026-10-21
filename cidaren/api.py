@@ -208,6 +208,11 @@ class Client:
         except (requests.Timeout, requests.ConnectionError):
             return {"code": 0}
 
+    # ---- 自动签到 ----
+    def signin(self):
+        """每日签到。"""
+        return self._post("/Student/TaskStudentSignin/Do", {})
+
     def search_word(self, word: str):
         """用官方接口把单词转原型（替代 easy 的 spaCy 依赖）。"""
         params = {
