@@ -678,7 +678,7 @@ def _norm_corrects_answer(corrects, mode, stem) -> str:
     final_ans = corrects[0] if isinstance(corrects, list) else corrects
     if mode == 32 and isinstance(final_ans, str):
         words = final_ans.split()
-        blank_count = stem.count("_")
+        _, blank_count = _template_slots(stem)
         if len(words) < blank_count:
             expanded = []
             for w in words:

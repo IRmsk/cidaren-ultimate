@@ -116,12 +116,15 @@ def decrypt_data(data, jv):
     if not isinstance(data, str) or not data:
         return data
     jv = str(jv or "")
-    if not jv or jv == "0" or jv == "99":
+    if not jv or jv == "0":
         # 未加密，尝试直接 json
         try:
             return json.loads(data)
         except (ValueError, TypeError):
             return data
+    if jv == "99":
+        # 新版 AES-GCM 加密，暂不支持，抛明确异常而不是静默走错分支
+        raise NotImplementedError("jv=99 加密响应暂不支持，请使用旧版接口或手动抓包")
     if jv == "1":
         raw = data[32:]
     elif jv == "4":
