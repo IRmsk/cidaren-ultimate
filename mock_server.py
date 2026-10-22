@@ -15,7 +15,7 @@ from flask import Flask, jsonify, request
 app = Flask(__name__)
 LOCK = threading.Lock()
 
-TOTAL = 16
+TOTAL = 24
 MOCK_WORDS = [
     {"word": "green", "word_zh": "绿色"},
     {"word": "storage", "word_zh": "存储"},
@@ -119,6 +119,7 @@ def _state(task_id, release_id):
                 "correct": 0,
                 "score": 0,
                 "selected": False,
+                "judged": {},  # seq -> True/False，首判结果（对齐真实服务端：首判错了后面纠错不加分）
             }
         if task_id in TASKS:
             TASKS[task_id]["score"] = SESSION[key]["score"]  # 保留首次登记的 release_id
@@ -200,13 +201,26 @@ def verify_answer():
     if t is None:
         return jsonify({"code": 1, "data": {"answer_result": 0}})
     _, correct = t
-    if _match(answer, correct, st["questions"][seq - 1][0]):
-        with LOCK:
+    with LOCK:
+        # 首判计分：这道题已经判过了，直接返回之前的结果
+        if seq in st["judged"]:
+            was_correct = st["judged"][seq]
+            return jsonify({"code": 1, "data": {
+                "answer_result": 1 if was_correct else 0,
+                "topic_code": code,
+                "over_status": 0,
+                "answer_corrects": list(correct) if isinstance(correct, list) else [correct],
+            }})
+        
+        # 第一次判分
+        is_correct = _match(answer, correct, st["questions"][seq - 1][0])
+        st["judged"][seq] = is_correct
+        if is_correct:
             st["correct"] += 1
-        return jsonify({"code": 1, "data": {"answer_result": 1, "topic_code": code, "over_status": 0}})
-    return jsonify({"code": 1, "data": {"answer_result": 0, "topic_code": code,
-                                        "answer_corrects": list(correct) if isinstance(correct, list) else [correct],
-                                        "over_status": 0}})
+            return jsonify({"code": 1, "data": {"answer_result": 1, "topic_code": code, "over_status": 0}})
+        return jsonify({"code": 1, "data": {"answer_result": 0, "topic_code": code,
+                                            "answer_corrects": list(correct) if isinstance(correct, list) else [correct],
+                                            "over_status": 0}})
 
 
 def _match(answer, correct, mode) -> bool:
