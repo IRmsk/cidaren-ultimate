@@ -308,6 +308,11 @@ def api_config():
 def api_save_config():
     """保存前端提交的整份配置到 .env（白名单由 save_runtime_config 把关）。"""
     body = request.get_json(force=True) or {}
+    # 如果 USERTOKEN 变了，自动更新 TOKEN_SAVED_AT
+    old_cfg = get_runtime_config()
+    if body.get("USERTOKEN") and body.get("USERTOKEN") != old_cfg.get("USERTOKEN"):
+        import time
+        body["TOKEN_SAVED_AT"] = str(time.time())
     saved = save_runtime_config(body)
     return jsonify({
         "ok": True, "config": saved, "env_file": env_file_path(),
@@ -348,15 +353,17 @@ def api_tasks():
 def api_token_check():
     """校验 USERTOKEN 有效性，返回学生姓名或错误信息。"""
     from .core.login import is_token_valid
+    from .core.config import token_expiry_hint
     cfg = get_runtime_config()
     missing = get_missing_auth_fields(cfg)
     if missing:
         return jsonify({"ok": False, "error": f"缺少 USERTOKEN"}), 400
     ok, info = is_token_valid(cfg["USERTOKEN"], cfg.get("ABC", ""), cfg.get("AUTH_V", ""))
+    hint = token_expiry_hint()
     if ok:
         name = (info or {}).get("student_name") or (info or {}).get("nick_name") or "?"
-        return jsonify({"ok": True, "name": name})
-    return jsonify({"ok": False, "error": "Token 无效或已过期"})
+        return jsonify({"ok": True, "name": name, "hint": hint})
+    return jsonify({"ok": False, "error": "Token 无效或已过期", "hint": hint})
 
 
 @app.route("/api/login_qr", methods=["POST"])

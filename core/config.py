@@ -60,6 +60,8 @@ CONFIG_FIELDS = [
     "OCR_MODE", "BAIDU_OCR_AK", "BAIDU_OCR_SK",
     # 自动签到：0=关闭（默认）；1=开启
     "SIGNIN_ENABLED",
+    # token 保存时间（时间戳，自动写入）
+    "TOKEN_SAVED_AT",
 ]
 
 DEFAULT_CONFIG = {
@@ -221,3 +223,24 @@ def as_bool(value, default: bool = True) -> bool:
     if value is None:
         return default
     return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def token_age_hours() -> float:
+    """token 已使用小时数（实测约 6 小时过期）。"""
+    saved = get_runtime_config().get("TOKEN_SAVED_AT", "")
+    try:
+        saved_ts = float(saved)
+        return (time.time() - saved_ts) / 3600
+    except (TypeError, ValueError):
+        return -1.0
+
+
+def token_expiry_hint() -> str:
+    """生成 token 过期提示文案。"""
+    age = token_age_hours()
+    if age < 0:
+        return "token 保存时间未知"
+    remaining = 6.0 - age
+    if remaining <= 0:
+        return "token 可能已过期，请重新登录"
+    return f"已用 {age:.1f} 小时，约 {remaining:.1f} 小时后过期"
