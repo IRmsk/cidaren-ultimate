@@ -664,11 +664,12 @@ def _learn_from_success(ctx, topic: dict, answer, mode, src):
 
 
 def _report(ctx, mode, src, ok, stem="", remark="", answer=""):
-    """写一条测试报告（task 维度聚合）。"""
+    """写一条测试报告（task 维度聚合）。自动计算耗时。"""
     try:
+        duration = time.time() - getattr(ctx, "_t_start", time.time())
         rp.report_add(rp.task_key(ctx.task_kind, getattr(ctx, "task_id", "?"),
                                   getattr(ctx, "release_id", "?")),
-                      mode, src, ok, stem, remark, answer)
+                      mode, src, ok, stem, remark, answer, duration=duration)
     except Exception:
         pass
 
@@ -734,6 +735,7 @@ def solve_topic(ctx: TopicContext, topic: dict, log=lambda s: None):
     """
     处理一道题。返回下一题响应 dict（含 topic_code / topic_done_num）或 None（任务结束）。
     """
+    ctx._t_start = time.time()
     mode = topic.get("topic_mode")
     stem_obj = topic.get("stem") or {}
     stem = stem_obj.get("content", "?")

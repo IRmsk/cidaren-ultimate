@@ -24,7 +24,7 @@ def _path(key: str) -> Path:
     return REPORTS_DIR / f"{key}.jsonl"
 
 
-def report_add(key: str, mode, src, ok, stem="", remark="", answer=""):
+def report_add(key: str, mode, src, ok, stem="", remark="", answer="", duration=None):
     try:
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         rec = {
@@ -35,6 +35,7 @@ def report_add(key: str, mode, src, ok, stem="", remark="", answer=""):
             "stem": str(stem)[:80],
             "remark": str(remark)[:80],
             "answer": str(answer)[:60],
+            "duration": round(duration, 1) if duration else None,
         }
         with open(_path(key), "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -70,6 +71,9 @@ def report_stats(key: str) -> dict:
     skip = sum(1 for r in judge if r.get("src") in ("skip", "blank"))
     src_dist = {}
     mode_dist = {}
+    # 答题速度统计
+    durations = [r.get("duration") for r in judge if r.get("duration")]
+    avg_duration = round(sum(durations) / len(durations), 1) if durations else None
     for r in recs:
         src = r.get("src", "?")
         src_dist[src] = src_dist.get(src, 0) + 1
@@ -82,6 +86,7 @@ def report_stats(key: str) -> dict:
         "fail": total - ok,
         "skip": skip,
         "accuracy": round(ok / total * 100, 1) if total else 0,
+        "avg_duration": avg_duration,
         "src_dist": src_dist,
         "mode_dist": mode_dist,
         "updated": recs[-1].get("ts") if recs else None,
