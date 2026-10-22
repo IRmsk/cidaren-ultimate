@@ -746,6 +746,10 @@ def solve_topic(ctx: TopicContext, topic: dict, log=lambda s: None):
     def logf(tag, text, extra=""):
         log(f"  [{mode:>2}] {tag} {str(text)[:42]}{extra}")
 
+    # 输出题目内容（前 50 字）
+    stem_preview = str(stem)[:50].replace("\n", " ")
+    logf("题目", stem_preview)
+
     # ---------- OCR 读图兜底（图片题干/选项 -> 文字） ----------
     try:
         ocr_mod.topic_ocr(topic, ctx.config, log=log)
