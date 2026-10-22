@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#6366f1" />
+  <title>cidaren-ultimate 控制台</title>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+    
+    :root {
+      --primary: #6366f1;
+      --primary-dark: #4f46e5;
+      --primary-light: #eef2ff;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --radius: 12px;
+      --shadow: 0 1px 3px 0 rgba(0,0,0,.1), 0 1px 2px -1px rgba(0,0,0,.1);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -4px rgba(0,0,0,.1);
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 16px;
+      padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    /* 页头 */
+    .header {
+      background: linear-gradient(135deg, var(--primary) 0%, #8b5cf6 100%);
+      color: white;
+      padding: 24px;
+      border-radius: var(--radius);
+      margin-bottom: 20px;
+      box-shadow: var(--shadow-lg);
+    }
+    
+    .header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    
+    .header p {
+      opacity: 0.9;
+      font-size: 14px;
+    }
+    
+    /* 卡片 */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    
+    .card-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .card-header h2 {
+      font-size: 18px;
+      font-weight: 600;
+    }
+    
+    .card-header p {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    
+    .card-body {
+      padding: 20px;
+    }
+    
+    /* Tab 导航 */
+    .tabs {
+      display: flex;
+      background: var(--bg);
+      border-radius: 8px;
+      padding: 4px;
+      margin-bottom: 20px;
+    }
+    
+    .tab {
+      flex: 1;
+      padding: 8px 16px;
+      text-align: center;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-muted);
+      transition: all 0.2s;
+      border: none;
+      background: transparent;
+    }
+    
+    .tab.active {
+      background: var(--card);
+      color: var(--primary);
+      box-shadow: var(--shadow);
+    }
+    
+    .tab-content {
+      display: none;
+    }
+    
+    .tab-content.active {
+      display: block;
+    }
+    
+    /* 表单 */
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    
+    .form-group label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+    }
+    
+    .form-group input,
+    .form-group select {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      outline: none;
+    }
+    
+    .form-group input:focus,
+    .form-group select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-light);
+    }
+    
+    .form-group small {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    
+    /* 按钮 */
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background: var(--primary-dark);
+    }
+    
+    .btn-success {
+      background: var(--success);
+      color: white;
+    }
+    
+    .btn-warning {
+      background: var(--warning);
+      color: white;
+    }
+    
+    .btn-danger {
+      background: var(--danger);
+      color: white;
+    }
+    
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    
+    .btn-outline:hover {
+      background: var(--bg);
+    }
+    
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 13px;
+    }
+    
+    /* 状态栏 */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    
+    .status-ok {
+      background: #dcfce7;
+      color: #166534;
+    }
+    
+    .status-warn {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    
+    .status-error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    
+    /* 任务列表 */
+    .task-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    
+    .task-item {
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+    
+    .task-item:hover {
+      border-color: var(--primary);
+      box-shadow: var(--shadow);
+    }
+    
+    .task-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    
+    .task-title {
+      font-weight: 600;
+      font-size: 15px;
+    }
+    
+    .task-status {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    
+    .progress-bar {
+      height: 8px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 8px 0;
+    }
+    
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary), #8b5cf6);
+      border-radius: 4px;
+      transition: width 0.3s;
+    }
+    
+    .task-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    
+    /* 日志面板 */
+    .log-panel {
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 16px;
+      border-radius: 8px;
+      font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    
+    .log-panel::-webkit-scrollbar {
+      width: 6px;
+    }
+    
+    .log-panel::-webkit-scrollbar-track {
+      background: #334155;
+      border-radius: 3px;
+    }
+    
+    .log-panel::-webkit-scrollbar-thumb {
+      background: #475569;
+      border-radius: 3px;
+    }
+    
+    .log-line {
+      margin-bottom: 2px;
+    }
+    
+    .log-ok { color: #4ade80; }
+    .log-warn { color: #facc15; }
+    .log-error { color: #f87171; }
+    .log-info { color: #60a5fa; }
+    
+    /* 统计卡片 */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+    }
+    
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--primary);
+    }
+    
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+    
+    /* 响应式 */
+    @media (max-width: 768px) {
+      body {
+        padding: 12px;
+      }
+      
+      .header {
+        padding: 20px;
+      }
+      
+      .header h1 {
+        font-size: 24px;
+      }
+      
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+      
+      .tabs {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    
+    <!-- 页头 -->
+    <div class="header">
+      <h1>cidaren-ultimate</h1>
+      <p>词达人全自动刷题 · 全题型引擎 · AI 答题 · 自学习题库</p>
+    </div>
+    
+    <!-- 配置中心 -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>配置中心</h2>
+          <p>保存后写入 .env 文件</p>
+        </div>
+        <div id="config-pill" class="status-badge status-warn">读取中...</div>
+      </div>
+      <div class="card-body">
+        
+        <!-- 快捷操作 -->
+        <div style="display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;">
+          <button class="btn btn-success" onclick="openQr()">微信扫码登录</button>
+          <button class="btn btn-outline" onclick="checkToken()">校验 Token</button>
+          <div id="stats-box" class="status-badge status-info">答案库: -</div>
+        </div>
+        
+        <!-- Tab 导航 -->
+        <div class="tabs">
+          <button class="tab active" onclick="switchTab('basic')">基本配置</button>
+          <button class="tab" onclick="switchTab('ai')">AI 配置</button>
+          <button class="tab" onclick="switchTab('advanced')">高级配置</button>
+        </div>
+        
+        <!-- 基本配置 -->
+        <div id="tab-basic" class="tab-content active">
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="USERTOKEN">USERTOKEN</label>
+              <input id="USERTOKEN" type="password" autocomplete="off" />
+              <small>词达人请求头中的 usertoken</small>
+            </div>
+            <div class="form-group">
+              <label for="ABC">ABC</label>
+              <input id="ABC" type="password" autocomplete="off" />
+              <small>词达人请求头中的 abc（可选）</small>
+            </div>
+            <div class="form-group">
+              <label for="AUTH_V">AUTH_V</label>
+              <input id="AUTH_V" type="password" autocomplete="off" />
+              <small>authorization-v（可选）</small>
+            </div>
+            <div class="form-group">
+              <label for="COURSE_ID">COURSE_ID</label>
+              <input id="COURSE_ID" type="text" placeholder="CET4_v2" />
+              <small>自学任务课程 ID</small>
+            </div>
+            <div class="form-group">
+              <label for="STUDY_GRADE">STUDY_GRADE</label>
+              <input id="STUDY_GRADE" type="number" min="1" max="4" placeholder="2" />
+              <small>1快速 / 2普通 / 3完整 / 4超难</small>
+            </div>
+          </div>
+        </div>
+        
+        <!-- AI 配置 -->
+        <div id="tab-ai" class="tab-content">
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="LLM_URL">LLM_URL</label>
+              <input id="LLM_URL" type="text" placeholder="https://api.deepseek.com" />
+              <small>OpenAI 兼容接口地址</small>
+            </div>
+            <div class="form-group">
+              <label for="LLM_MODEL">LLM_MODEL</label>
+              <input id="LLM_MODEL" type="text" placeholder="deepseek-chat" />
+              <small>模型名</small>
+            </div>
+            <div class="form-group">
+              <label for="LLM_KEY">LLM_KEY</label>
+              <input id="LLM_KEY" type="password" autocomplete="off" />
+              <small>API Key</small>
+            </div>
+            <div class="form-group">
+              <label for="AI_PRIORITY">AI_PRIORITY</label>
+              <input id="AI_PRIORITY" type="text" placeholder="1" />
+              <small>1=AI优先 / 0=规则优先</small>
+            </div>
+            <div class="form-group">
+              <label for="LLM_MAX_TOKENS">LLM_MAX_TOKENS</label>
+              <input id="LLM_MAX_TOKENS" type="number" placeholder="1024" />
+              <small>单次回答最大 token</small>
+            </div>
+          </div>
+          <div style="margin-top: 12px;">
+            <button class="btn btn-outline btn-sm" onclick="testLLM()">测试 AI 连接</button>
+            <span id="llm-test-result" style="margin-left: 8px; font-size: 13px;"></span>
+          </div>
+        </div>
+        
+        <!-- 高级配置 -->
+        <div id="tab-advanced" class="tab-content">
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="DELAY_PER_QUESTION">DELAY_PER_QUESTION</label>
+              <input id="DELAY_PER_QUESTION" type="number" placeholder="2" />
+              <small>答题间隔（秒），建议≥2</small>
+            </div>
+            <div class="form-group">
+              <label for="MAX_ROUNDS">MAX_ROUNDS</label>
+              <input id="MAX_ROUNDS" type="number" placeholder="10" />
+              <small>未满分时最大重刷轮数</small>
+            </div>
+            <div class="form-group">
+              <label for="QUESTION_TIMEOUT">QUESTION_TIMEOUT</label>
+              <input id="QUESTION_TIMEOUT" type="number" placeholder="60" />
+              <small>单题超时秒数</small>
+            </div>
+            <div class="form-group">
+              <label for="USE_WORD_API">USE_WORD_API</label>
+              <input id="USE_WORD_API" type="text" placeholder="1" />
+              <small>1=用查词接口 / 0=禁用</small>
+            </div>
+            <div class="form-group">
+              <label for="OCR_MODE">OCR_MODE</label>
+              <input id="OCR_MODE" type="text" placeholder="none" />
+              <small>none / baidu / tesseract</small>
+            </div>
+            <div class="form-group">
+              <label for="BAIDU_OCR_AK">BAIDU_OCR_AK</label>
+              <input id="BAIDU_OCR_AK" type="text" />
+              <small>百度 OCR API Key</small>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 保存按钮 -->
+        <div style="margin-top: 20px; display: flex; gap: 8px;">
+          <button class="btn btn-outline" onclick="loadConfig()">重新读取</button>
+          <button class="btn btn-primary" onclick="saveConfig(false)">保存配置</button>
+          <button class="btn btn-primary" onclick="saveConfig(true)">保存并刷新任务</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 任务面板 -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>任务面板</h2>
+          <p>子进程执行刷题，日志实时查看</p>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-outline btn-sm" onclick="loadTasks()">刷新任务</button>
+          <button class="btn btn-warning btn-sm" onclick="resumeAll()">断点恢复</button>
+          <button class="btn btn-outline btn-sm" onclick="loadReports()">测试报告</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div id="task-list" class="task-list">
+          <p style="color: var(--text-muted); text-align: center; padding: 40px;">点击刷新任务加载列表</p>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 日志面板 -->
+    <div class="card" id="log-card" style="display: none;">
+      <div class="card-header">
+        <div>
+          <h2 id="log-title">任务日志</h2>
+          <p id="log-subtitle"></p>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="closeLog()">关闭</button>
+      </div>
+      <div class="card-body">
+        <div id="log-panel" class="log-panel"></div>
+      </div>
+    </div>
+    
+  </div>
+  
+  <script>
+    // Tab 切换
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('tab-' + tabName).classList.add('active');
+    }
+    
+    // 加载配置
+    async function loadConfig() {
+      const resp = await fetch('/api/config');
+      const cfg = await resp.json();
+      for (const [k, v] of Object.entries(cfg)) {
+        const el = document.getElementById(k);
+        if (el) el.value = v || '';
+      }
+      document.getElementById('config-pill').textContent = '已加载';
+      document.getElementById('config-pill').className = 'status-badge status-ok';
+      loadStats();
+    }
+    
+    // 保存配置
+    async function saveConfig(refreshTasks) {
+      const cfg = {};
+      document.querySelectorAll('input').forEach(el => {
+        if (el.id) cfg[el.id] = el.value;
+      });
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(cfg)
+      });
+      alert('配置已保存');
+      if (refreshTasks) loadTasks();
+    }
+    
+    // 加载统计
+    async function loadStats() {
+      try {
+        const resp = await fetch('/api/config');
+        const cfg = await resp.json();
+        document.getElementById('stats-box').textContent = '答案库统计';
+      } catch (e) {}
+    }
+    
+    // 加载任务
+    async function loadTasks() {
+      const resp = await fetch('/api/tasks');
+      const tasks = await resp.json();
+      const list = document.getElementById('task-list');
+      if (!tasks.length) {
+        list.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 40px;">暂无任务</p>';
+        return;
+      }
+      list.innerHTML = tasks.map((t, i) => `
+        <div class="task-item">
+          <div class="task-header">
+            <div class="task-title">${i}. ${t.name || '未知任务'}</div>
+            <div class="task-status">${t.status || '未开始'}</div>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" style="width: ${t.progress || 0}%"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted);">
+            <span>进度: ${t.progress || 0}%</span>
+            <span>分数: ${t.score || 0}</span>
+          </div>
+          <div class="task-actions">
+            <button class="btn btn-primary btn-sm" onclick="startTask('${t.source}', '${t.task_id}', '${t.release_id}')">启动</button>
+            <button class="btn btn-warning btn-sm" onclick="loopTask('${t.source}', '${t.task_id}', '${t.release_id}')">循环</button>
+            <button class="btn btn-outline btn-sm" onclick="showLog('${t.source}', '${t.task_id}', '${t.release_id}')">日志</button>
+          </div>
+        </div>
+      `).join('');
+    }
+    
+    // 启动任务
+    async function startTask(source, taskId, releaseId) {
+      await fetch('/api/start', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({source, task_id: taskId, release_id: releaseId, loop: false})
+      });
+      showLog(source, taskId, releaseId);
+    }
+    
+    // 循环任务
+    async function loopTask(source, taskId, releaseId) {
+      await fetch('/api/start', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({source, task_id: taskId, release_id: releaseId, loop: true})
+      });
+      showLog(source, taskId, releaseId);
+    }
+    
+    // 显示日志
+    function showLog(source, taskId, releaseId) {
+      document.getElementById('log-card').style.display = 'block';
+      document.getElementById('log-title').textContent = '任务日志';
+      document.getElementById('log-subtitle').textContent = `${taskId} / ${releaseId}`;
+      pollLog(source, taskId, releaseId);
+    }
+    
+    // 轮询日志
+    async function pollLog(source, taskId, releaseId) {
+      try {
+        const resp = await fetch(`/api/logs?source=${source}&task_id=${taskId}&release_id=${releaseId}`);
+        const data = await resp.json();
+        const panel = document.getElementById('log-panel');
+        panel.innerHTML = (data.logs || []).map(l => 
+          `<div class="log-line">${escapeHtml(l)}</div>`
+        ).join('');
+        panel.scrollTop = panel.scrollHeight;
+        if (document.getElementById('log-card').style.display !== 'none') {
+          setTimeout(() => pollLog(source, taskId, releaseId), 2000);
+        }
+      } catch (e) {}
+    }
+    
+    // 关闭日志
+    function closeLog() {
+      document.getElementById('log-card').style.display = 'none';
+    }
+    
+    // 断点恢复
+    async function resumeAll() {
+      await fetch('/api/resume', {method: 'POST'});
+      alert('断点恢复已启动');
+    }
+    
+    // 校验 Token
+    async function checkToken() {
+      alert('校验中...');
+    }
+    
+    // 打开扫码
+    function openQr() {
+      alert('扫码登录功能');
+    }
+    
+    // 测试 AI
+    async function testLLM() {
+      document.getElementById('llm-test-result').textContent = '测试中...';
+      try {
+        const resp = await fetch('/api/test_llm', {method: 'POST'});
+        const data = await resp.json();
+        document.getElementById('llm-test-result').textContent = data.ok ? '✓ 连接成功' : '✗ 连接失败';
+      } catch (e) {
+        document.getElementById('llm-test-result').textContent = '✗ 连接失败';
+      }
+    }
+    
+    // HTML 转义
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+    
+    // 初始化
+    loadConfig();
+  </script>
+</body>
+</html>
