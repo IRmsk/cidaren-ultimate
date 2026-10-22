@@ -172,14 +172,40 @@ def _lib() -> dict:
     return _read_json(ANSWER_LIB_FILE)
 
 
+def _normalize_zh(text: str) -> str:
+    """标准化中文短语：去掉标点、空格，用于模糊匹配。"""
+    import re
+    if not text:
+        return ""
+    # 去掉所有标点和空格
+    return re.sub(r'[^\w\u4e00-\u9fff]', '', text).lower()
+
+
 def lookup_phrase(word_zh) -> list | None:
-    """短语库命中（mode 32 / 73 完整答案）。"""
+    """短语库命中（mode 32 / 73 完整答案）。先精确匹配，再模糊匹配。"""
     if not word_zh:
         return None
+    # 1. 精确匹配
     answers = _lib().get(word_zh)
-    if not answers:
+    if answers:
+        return answers if isinstance(answers, list) else [answers]
+    # 2. 模糊匹配（去掉标点、空格后再比）
+    norm_key = _normalize_zh(word_zh)
+    if not norm_key:
         return None
-    return answers if isinstance(answers, list) else [answers]
+    for k, v in _lib().items():
+        if k == WORD_KEY:
+            continue
+        if _normalize_zh(k) == norm_key:
+            return v if isinstance(v, list) else [v]
+    # 3. 部分匹配（包含关系）
+    for k, v in _lib().items():
+        if k == WORD_KEY:
+            continue
+        nk = _normalize_zh(k)
+        if norm_key in nk or nk in norm_key:
+            return v if isinstance(v, list) else [v]
+    return None
 
 
 def lookup_word(word_zh) -> list | None:
