@@ -880,7 +880,7 @@ def _solve_collocation(ctx, topic, log, logf):
 
     chosen, ok_tags = [], []
     cur_code = topic["topic_code"]
-    for ans_tag in tags[:answer_num]:
+    for ans_tag in (tags or [])[:answer_num]:
         if ans_tag in chosen:
             continue
         vr = _verify(ctx, cur_code, ans_tag)
