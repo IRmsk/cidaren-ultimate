@@ -33,37 +33,70 @@ TASKS = {}  # task_id -> {"release_id", "score"}，供 PageTask 列表返回
 
 
 def _gen_questions():
-    """固定 mock 题库，循环到 TOTAL 题，覆盖主要题型。"""
+    """固定 mock 题库，循环到 TOTAL 题，覆盖全部 19 种题型。"""
     bank = [
         # (mode, stem, remark, options, answer, extra)
+        # === 英译汉类（11/15/16/21/22）===
         (11, "He will spoil rather than {accomplish} things.", "vt. 完成；达成",
          [{"content": "vt. 完成；达成"}, {"content": "vt. 破坏"}, {"content": "vt. 追求"}, {"content": "vt. 经受住"}], 0, {}),
-        (11, "The boxes can {withstand} massive force.", "vt. 经受住；顶住",
+        (15, "The boxes can {withstand} massive force.", "vt. 经受住；顶住",
          [{"content": "vt. 经受住"}, {"content": "vt. 解决"}, {"content": "vt. 追赶"}, {"content": "vt. 使破产"}], 0, {}),
+        (16, "She is {conscious} of the risk.", "adj. 有意识的",
+         [{"content": "adj. 有意识的"}, {"content": "adj. 负责的"}, {"content": "adj. 绿色的"}, {"content": "adj. 存储的"}], 0, {}),
+        (21, "This is an {instance} of success.", "n. 实例",
+         [{"content": "n. 实例"}, {"content": "n. 部长"}, {"content": "n. 绿色"}, {"content": "n. 存储"}], 0, {}),
+        (22, "He is the {minister} of culture.", "n. 部长",
+         [{"content": "n. 部长"}, {"content": "n. 实例"}, {"content": "n. 绿色"}, {"content": "n. 存储"}], 0, {}),
+        
+        # === 看义选词类（17/18）===
         (17, "绿色", "选择正确的单词",
          [{"content": "accomplish"}, {"content": "storage"}, {"content": "green"}, {"content": "pursue"}], 2, {}),
-        (17, "部长", "选择正确的单词",
+        (18, "部长", "选择正确的单词",
          [{"content": "minister"}, {"content": "instance"}, {"content": "pursue"}, {"content": "green"}], 0, {}),
+        
+        # === 搭配题（31）===
         (31, "green", "搭配",
          [{"content": "in"}, {"content": "out"}, {"content": "up"}, {"content": "off"}], [0], {"answer_num": 1}),
         (31, "storage", "搭配",
          [{"content": "on"}, {"content": "off"}, {"content": "in"}, {"content": "out"}], [1], {"answer_num": 1}),
+        
+        # === 汉译英填空（32）===
         (32, "___ _", "绿色制造",
          [{"content": "green"}, {"content": "manufacturing"}, {"content": "the"}], "green,manufacturing", {}),
         (32, "___ ___", "负责的公民",
          [{"content": "responsible"}, {"content": "citizen"}, {"content": "the"}], "responsible,citizen", {}),
-        (42, "He is {} for the task.", "负责的",
+        
+        # === 选词完成句子（41/42/43/44）===
+        (41, "He is {} for the task.", "负责的",
          [{"content": "storage"}, {"content": "responsible"}, {"content": "green"}, {"content": "instance"}], 1, {}),
         (42, "She is {} of the risk.", "有意识的",
          [{"content": "conscious"}, {"content": "green"}, {"content": "pursue"}, {"content": "storage"}], 0, {}),
+        (43, "This is an {} of success.", "实例",
+         [{"content": "instance"}, {"content": "green"}, {"content": "pursue"}, {"content": "storage"}], 0, {}),
+        (44, "He is the {} of culture.", "部长",
+         [{"content": "minister"}, {"content": "green"}, {"content": "pursue"}, {"content": "storage"}], 0, {}),
+        
+        # === 完成句子（51/52/53/54）===
         (51, "{}een is a color.", "绿色",
          [{"content": "green"}, {"content": "great"}, {"content": "grow"}], "green", {"w_lens": [5], "w_tip": "gr"}),
-        (51, "{}ist is a person.", "部长",
+        (52, "{}ist is a person.", "部长",
          [{"content": "minister"}, {"content": "manage"}, {"content": "master"}], "minister", {"w_lens": [8], "w_tip": "mi"}),
+        (53, "{}onscious is an adjective.", "有意识的",
+         [{"content": "conscious"}, {"content": "conscience"}, {"content": "consent"}], "conscious", {"w_lens": [9], "w_tip": "co"}),
+        (54, "{}tance is a noun.", "实例",
+         [{"content": "instance"}, {"content": "instant"}, {"content": "instead"}], "instance", {"w_lens": [8], "w_tip": "in"}),
+        
+        # === 单词拼写（73）===
         (73, "{gr}{sto}", "绿色存储",
          [], ["green", "storage"], {"w_lens": [5, 7]}),
         (73, "{res}{cit}", "负责的公民",
          [], ["responsible", "citizen"], {"w_lens": [10, 6]}),
+        
+        # === 例句配对（13）===
+        (13, "He is a man who will spoil rather than accomplish things.", "vt. 完成",
+         [{"content": "accomplish"}, {"content": "withstand"}, {"content": "minister"}, {"content": "green"}], 0, {}),
+        
+        # === 学习卡片（0）===
         (0, "green", "学习卡片",
          [{"content": "adj 绿色的"}, {"content": "n 绿色"}], None, {}),
         (0, "storage", "学习卡片",
