@@ -16,7 +16,7 @@ from concurrent.futures import TimeoutError as _FutTimeout
 from core import bank as bk
 from core.api import ApiError, SecurityVerifyError
 from core.config import as_int, get_runtime_config
-from .solver import TopicContext, setup_from_word_list, solve_topic
+from solver.solver import TopicContext, setup_from_word_list, solve_topic
 
 MAX_PAGE = 20
 

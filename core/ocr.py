@@ -14,7 +14,7 @@ import time
 
 import requests
 
-from .config import as_int, get_runtime_config
+from core.config import as_int, get_runtime_config
 
 
 def _chat_url(llm_url: str) -> str:

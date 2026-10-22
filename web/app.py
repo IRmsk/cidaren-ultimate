@@ -258,9 +258,10 @@ def _spawn_job(source, task_id, release_id, loop=False, config=None, course_id=N
     else:
         args = ["class", str(task_id), str(release_id), str(task_type or 1)]
     proc = subprocess.Popen(
-        [sys.executable, "-u", "-m", "cidaren", *args],
+        [sys.executable, "-u", "__main__.py", *args],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         bufsize=1, env=build_subprocess_env(config),
+        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     )
     key = _job_key(source, task_id, release_id)
     old = JOBS.get(key)
@@ -352,8 +353,8 @@ def api_tasks():
 @app.route("/api/token_check")
 def api_token_check():
     """校验 USERTOKEN 有效性，返回学生姓名或错误信息。"""
-    from .core.login import is_token_valid
-    from .core.config import token_expiry_hint
+    from core.login import is_token_valid
+    from core.config import token_expiry_hint
     cfg = get_runtime_config()
     missing = get_missing_auth_fields(cfg)
     if missing:
@@ -369,7 +370,7 @@ def api_token_check():
 @app.route("/api/login_qr", methods=["POST"])
 def api_login_qr():
     """生成扫码登录二维码。返回 user_token / base64 图片 / 授权链接。"""
-    from .core.login import qr_authorize
+    from core.login import qr_authorize
     try:
         with QR_LOCK:
             session = qr_authorize()
@@ -388,7 +389,7 @@ def api_login_qr():
 @app.route("/api/login_poll")
 def api_login_poll():
     """轮询扫码结果。成功后把 USERTOKEN 写进配置并返回学生姓名。"""
-    from .core.login import is_token_valid
+    from core.login import is_token_valid
     with QR_LOCK:
         token = QR_STATE.get("token")
         started = QR_STATE.get("started", 0)

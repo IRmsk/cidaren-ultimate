@@ -13,7 +13,7 @@ import urllib.parse
 
 import requests
 
-from .crypto import SALT, decrypt_response, md5, sign
+from core.crypto import SALT, decrypt_response, md5, sign
 
 VERSION = "2.7.0.260507_01"
 # 支持 CIDAREN_API_BASE / CIDAREN_STUDENT_API 环境变量覆盖（mock server 测试用）

@@ -14,8 +14,8 @@ import time
 
 import requests
 
-from .api import Client, token_valid
-from .crypto import md5
+from core.api import Client, token_valid
+from core.crypto import md5
 
 GATEWAY = "https://gateway.vocabgo.com"
 VERSION = "1.2.0"

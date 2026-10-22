@@ -18,7 +18,7 @@ import urllib.parse
 
 from core import bank as bk
 from core import ocr as ocr_mod
-from . import report as rp
+from solver import report as rp
 from core.ai import llm_answer
 from core.config import as_bool, as_int, get_runtime_config
 

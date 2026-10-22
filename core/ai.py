@@ -13,7 +13,7 @@ import uuid
 
 import requests
 
-from .config import as_int, get_runtime_config
+from core.config import as_int, get_runtime_config
 
 
 def _chat_completions_url(llm_url: str) -> str:

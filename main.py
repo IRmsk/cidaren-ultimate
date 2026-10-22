@@ -8,8 +8,19 @@ cidaren-ultimate 统一入口
   python main.py check         # 校验 token
 """
 import sys
+import os
+import importlib.util
 
-from cidaren.__main__ import main
+# 把当前目录加到 sys.path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# 直接加载 __main__.py（避免循环导入）
+_spec = importlib.util.spec_from_file_location(
+    "cidaren_main",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "__main__.py")
+)
+_cidaren_main = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_cidaren_main)
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_cidaren_main.main())
