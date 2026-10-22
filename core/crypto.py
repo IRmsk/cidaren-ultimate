@@ -9,8 +9,111 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
+from pathlib import Path
 
 SALT = "ajfajfamsnfaflfasakljdlalkflak"
+
+# ---- jv=99 加密上下文（进程内注入）----
+_crypto_context = None
+
+
+def set_crypto_document(document):
+    """进程内注入加密上下文（登录成功后调用）。"""
+    global _crypto_context
+    if isinstance(document, bytes):
+        document = document.decode("utf-8")
+    _crypto_context = json.loads(document) if isinstance(document, str) else document
+
+
+def _decode_prefixed_base64(value, prefix):
+    if not value:
+        return None
+    if value.startswith(prefix):
+        value = value[1:]
+    return base64.b64decode(value)
+
+
+def _read_crypto_context():
+    """读取加密上下文：优先进程内注入，其次从 crypto.json 文件读。"""
+    global _crypto_context
+    if _crypto_context is not None:
+        login_info = _crypto_context.get("login_info") or _crypto_context
+        shared_secret = _decode_prefixed_base64(login_info.get("a", ""), "h")
+        salt = _decode_prefixed_base64(login_info.get("b", ""), "a")
+        if shared_secret and salt:
+            return shared_secret, salt
+
+    # 从文件读
+    env_path = os.environ.get("CIDAREN_CRYPTO_FILE")
+    candidates = []
+    if env_path:
+        candidates.append(Path(env_path))
+    root = Path(__file__).resolve().parent.parent
+    candidates.extend([
+        root / "config" / "crypto.json",
+        root / "crypto.json",
+    ])
+    for path in candidates:
+        if not path.exists():
+            continue
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        login_info = data.get("login_info") or data
+        shared_secret = _decode_prefixed_base64(login_info.get("a", ""), "h")
+        salt = _decode_prefixed_base64(login_info.get("b", ""), "a")
+        if shared_secret and salt:
+            return shared_secret, salt
+
+    raise RuntimeError(
+        "收到 jv=99 加密响应，但未找到加密密钥。"
+        "请用新版登录获取 crypto.json，或通过 set_crypto_document 注入。"
+    )
+
+
+def _decrypt_jv99(payload):
+    """jv=99 AES-GCM 解密（参考 MOPELotus/Easy_Cidaren_Backend）。"""
+    try:
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    except ImportError:
+        raise RuntimeError("jv=99 解密需要 cryptography 库，请先 pip install cryptography。")
+
+    if isinstance(payload, dict) and payload.get("payload"):
+        payload = payload["payload"]
+    if not isinstance(payload, dict):
+        raise ValueError("jv=99 响应不是有效的加密 payload。")
+
+    iv = payload.get("iv")
+    cipher_text = payload.get("cipher_text") or payload.get("cipherText")
+    aad = payload.get("aad") or ""
+    if not iv or not cipher_text or not aad:
+        raise ValueError("jv=99 响应缺少 iv/cipher_text/aad。")
+
+    ucd = aad.split(":")[-1]
+    if not ucd:
+        raise ValueError("jv=99 响应 aad 缺少会话标识。")
+
+    shared_secret, salt = _read_crypto_context()
+    info = f"vcg-exam-aes:{ucd}".encode("utf-8")
+    key = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        info=info,
+    ).derive(shared_secret)
+
+    plain = AESGCM(key).decrypt(
+        base64.b64decode(iv),
+        base64.b64decode(cipher_text),
+        aad.encode("utf-8"),
+    )
+    text = plain.decode("utf-8")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return text
 
 # ---- jv=2_ 删位表（索引式，来自 easy_cidaren/decryptencrypt/debase64.py）----
 JV_TWO = {
@@ -123,8 +226,8 @@ def decrypt_data(data, jv):
         except (ValueError, TypeError):
             return data
     if jv == "99":
-        # 新版 AES-GCM 加密，暂不支持，抛明确异常而不是静默走错分支
-        raise NotImplementedError("jv=99 加密响应暂不支持，请使用旧版接口或手动抓包")
+        # 新版 AES-GCM 加密
+        return _decrypt_jv99(data)
     if jv == "1":
         raw = data[32:]
     elif jv == "4":
