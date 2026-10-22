@@ -873,7 +873,8 @@ def _solve_collocation(ctx, topic, log, logf):
         if isinstance(a_one, int):
             tags, src = [a_one], "ai"
     if not tags:
-        tags, src = [0], "guess"
+        # 不盲猜——拿不到标准答案就跳过，宁缺毋滥
+        pass
 
     chosen, ok_tags = [], []
     cur_code = topic["topic_code"]

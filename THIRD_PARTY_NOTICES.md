@@ -11,6 +11,9 @@
 | xm2284/Cidaren-AI | AI prompt 模板、答题节奏、解析策略 | 未声明 |
 | xuhaoranbb-boop/vocabgo-auto | OCR 读图兜底、Mock Server 思路 | MIT |
 | Rain-shadow/cdr | 微信扫码登录流程 | 未声明 |
+| cidaren-qianjiyi/backup/lexicon.json | 题目指纹库（3107 条） | 未声明 |
+| Easy_Cidaren/config/answer_lib.json | 短语答案库（213 条） | GPL-3.0 |
+| ECDICT | 离线英汉词典（14771 词） | MIT |
 
 ## 说明
 
