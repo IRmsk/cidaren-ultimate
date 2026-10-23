@@ -252,7 +252,9 @@ def submit_and_save():
     with LOCK:
         st["done"] = min(st["done"] + 1, len(st["questions"]))
         if st["done"] >= len(st["questions"]):
-            st["score"] = round(st["correct"] / len(st["questions"]) * 100, 1)
+            # 分母排除 mode 0 学习卡片（不参与判分）
+            total_graded = sum(1 for q in st["questions"] if q[0] != 0)
+            st["score"] = round(st["correct"] / total_graded * 100, 1)
             if tid in TASKS:
                 TASKS[tid]["score"] = st["score"]
     if st["done"] >= len(st["questions"]):
