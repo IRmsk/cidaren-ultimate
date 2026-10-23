@@ -188,6 +188,17 @@ def run_one_round(ctx: TopicContext, task_id, release_id, log=print):
             log(f"  [网络异常] {e}，重试下一题")
             time.sleep(3)
             continue
+        except Exception as e:
+            # 单题异常兜底：某道题崩了不影响整个任务，跳过继续
+            log(f"  [题 {qnum}] 异常: {e}，跳过该题")
+            try:
+                if ctx.is_study:
+                    next_resp = ctx.client.study_submit(code, 20000)
+                else:
+                    next_resp = ctx.client.submit(code, 20000)
+            except Exception:
+                log(f"  [题 {qnum}] 跳过提交也失败，继续下一题")
+                continue
 
         if next_resp is None:
             break

@@ -145,9 +145,6 @@ class Client:
     def skip(self, topic_code, time_spent=20000):
         return self.submit(topic_code, time_spent)
 
-    def signin(self):
-        return self._post("/Student/TaskStudentSignin/Do", {})
-
     # ---- 自学任务 ----
     def study_task_list(self, course_id="CET4_v2"):
         return self._get("/Student/StudyTask/List", {"course_id": course_id})
@@ -215,9 +212,10 @@ class Client:
 
     def search_word(self, word: str):
         """用官方接口把单词转原型（替代 easy 的 spaCy 依赖）。"""
+        import time
         params = {
             "word": word,
-            "timestamp": "1710396115786",
+            "timestamp": str(int(time.time() * 1000)),
             "version": "2.6.2.24031302",
             "app_type": 1,
         }
