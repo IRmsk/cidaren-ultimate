@@ -73,6 +73,11 @@ class TestE2EMock(unittest.TestCase):
             "QUESTION_TIMEOUT": "60",
         }
 
+    def setUp(self):
+        """每个测试之前重置 mock_server 的 SESSION，避免测试之间互相影响。"""
+        mock_server.SESSION.clear()
+        mock_server.TASKS.clear()
+
     def test_run_full_reaches_100(self):
         logs = []
         client = Client("mock-token", timeout=5)
@@ -84,6 +89,43 @@ class TestE2EMock(unittest.TestCase):
         m = re.search(r"\[分数\]\s*(\d+\.?\d*)", text)
         score = float(m.group(1)) if m else 0
         self.assertGreaterEqual(score, 80, f"分数 {score} < 80，未接近满分。日志:\n{text}")
+
+    def test_blank_probe_path(self):
+        """故意让题库漏掉几道题，测一下空白试探（probe）路径能不能走通。"""
+        # 先清空所有题库，模拟冷启动
+        import json
+        bank.BANK_FILE.write_text("{}")
+        bank.BANK_LEGACY_FILE.write_text("{}")
+        
+        logs = []
+        client = Client("mock-token", timeout=5)
+        runner.run_full(client, 1001, 2001, config=self._cfg(), log=logs.append, task_type=1)
+        text = "\n".join(logs)
+        
+        # 应该有空白试探的日志
+        self.assertIn("空白试探", text, f"没有走空白试探路径。日志:\n{text}")
+        # 应该有纠错成功的日志
+        self.assertIn("FIX", text, f"空白试探没救回来。日志:\n{text}")
+        
+        # 恢复题库
+        self._restore_bank()
+
+    def _restore_bank(self):
+        """恢复自动导入的题库（清空 bank.json + 恢复 bank_legacy.json）。"""
+        import json
+        from solver.solver import _topic_key
+        # 清空 bank.json（测试过程中答对的题写进去了）
+        bank.BANK_FILE.write_text("{}")
+        # 恢复 bank_legacy.json
+        mock_bank = {}
+        for q in mock_server._gen_questions():
+            mode, stem, remark, options, answer, extra = q
+            if answer is None:
+                continue
+            topic = {"topic_mode": mode, "stem": {"content": stem, "remark": remark}, "options": options}
+            key = _topic_key(topic)
+            mock_bank[key] = {"ans": answer, "stem": stem}
+        bank.BANK_LEGACY_FILE.write_text(json.dumps(mock_bank, ensure_ascii=False, indent=2))
 
     def test_report_generated(self):
         logs = []
