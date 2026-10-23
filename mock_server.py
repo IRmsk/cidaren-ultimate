@@ -225,6 +225,9 @@ def verify_answer():
 
 def _match(answer, correct, mode) -> bool:
     if mode == 73:
+        # answer 可能是 list（request.get_json 自动转的），也可能是 JSON 字符串
+        if isinstance(answer, list):
+            return answer == correct
         try:
             return json.loads(answer) == correct
         except (ValueError, TypeError):
