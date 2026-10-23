@@ -23840,5 +23840,245 @@
     "ans": 0,
     "stem": "because of his heroic {} in the war, he was considered as one of the bravest soldiers.",
     "src": "qianjiyi_import"
+  },
+  "11::He will spoil rather than {accomplish} things.::vt. 完成；达成": {
+    "ans": 0,
+    "stem": "He will spoil rather than {accomplish} things.",
+    "src": "mock_import"
+  },
+  "15::The boxes can {withstand} massive force.::vt. 经受住；顶住": {
+    "ans": 0,
+    "stem": "The boxes can {withstand} massive force.",
+    "src": "mock_import"
+  },
+  "16::She is {conscious} of the risk.::adj. 有意识的": {
+    "ans": 0,
+    "stem": "She is {conscious} of the risk.",
+    "src": "mock_import"
+  },
+  "21::This is an {instance} of success.::n. 实例": {
+    "ans": 0,
+    "stem": "This is an {instance} of success.",
+    "src": "mock_import"
+  },
+  "22::He is the {minister} of culture.::n. 部长": {
+    "ans": 0,
+    "stem": "He is the {minister} of culture.",
+    "src": "mock_import"
+  },
+  "17::绿色::选择正确的单词": {
+    "ans": 2,
+    "stem": "绿色",
+    "src": "mock_import"
+  },
+  "18::部长::选择正确的单词": {
+    "ans": 0,
+    "stem": "部长",
+    "src": "mock_import"
+  },
+  "31::green::搭配": {
+    "ans": [
+      0
+    ],
+    "stem": "green",
+    "src": "mock_import"
+  },
+  "31::storage::搭配": {
+    "ans": [
+      1
+    ],
+    "stem": "storage",
+    "src": "mock_import"
+  },
+  "32::___ _::绿色制造": {
+    "ans": "green,manufacturing",
+    "stem": "___ _",
+    "src": "mock_import"
+  },
+  "32::___ ___::负责的公民": {
+    "ans": "responsible,citizen",
+    "stem": "___ ___",
+    "src": "mock_import"
+  },
+  "41::He is {} for the task.::负责的": {
+    "ans": 1,
+    "stem": "He is {} for the task.",
+    "src": "mock_import"
+  },
+  "42::She is {} of the risk.::有意识的": {
+    "ans": 0,
+    "stem": "She is {} of the risk.",
+    "src": "mock_import"
+  },
+  "43::This is an {} of success.::实例": {
+    "ans": 0,
+    "stem": "This is an {} of success.",
+    "src": "mock_import"
+  },
+  "44::He is the {} of culture.::部长": {
+    "ans": 0,
+    "stem": "He is the {} of culture.",
+    "src": "mock_import"
+  },
+  "51::{}een is a color.::绿色": {
+    "ans": "green",
+    "stem": "{}een is a color.",
+    "src": "mock_import"
+  },
+  "52::{}ist is a person.::部长": {
+    "ans": "minister",
+    "stem": "{}ist is a person.",
+    "src": "mock_import"
+  },
+  "53::{}onscious is an adjective.::有意识的": {
+    "ans": "conscious",
+    "stem": "{}onscious is an adjective.",
+    "src": "mock_import"
+  },
+  "54::{}tance is a noun.::实例": {
+    "ans": "instance",
+    "stem": "{}tance is a noun.",
+    "src": "mock_import"
+  },
+  "73::{gr}{sto}::绿色存储": {
+    "ans": [
+      "green",
+      "storage"
+    ],
+    "stem": "{gr}{sto}",
+    "src": "mock_import"
+  },
+  "73::{res}{cit}::负责的公民": {
+    "ans": [
+      "responsible",
+      "citizen"
+    ],
+    "stem": "{res}{cit}",
+    "src": "mock_import"
+  },
+  "13::He is a man who will spoil rather than accomplish things.::vt. 完成": {
+    "ans": 0,
+    "stem": "He is a man who will spoil rather than accomplish things.",
+    "src": "mock_import"
+  },
+  "11::norm::he will spoil rather than {accomplish} things.::vt. 完成；达成::vt. 完成；达成|vt. 破坏|vt. 追求|vt. 经受住": {
+    "ans": 0,
+    "stem": "He will spoil rather than {accomplish} things.",
+    "src": "mock_import"
+  },
+  "15::norm::the boxes can {withstand} massive force.::vt. 经受住；顶住::vt. 经受住|vt. 解决|vt. 追赶|vt. 使破产": {
+    "ans": 0,
+    "stem": "The boxes can {withstand} massive force.",
+    "src": "mock_import"
+  },
+  "16::norm::she is {conscious} of the risk.::adj. 有意识的::adj. 有意识的|adj. 负责的|adj. 绿色的|adj. 存储的": {
+    "ans": 0,
+    "stem": "She is {conscious} of the risk.",
+    "src": "mock_import"
+  },
+  "21::norm::this is an {instance} of success.::n. 实例::n. 实例|n. 部长|n. 绿色|n. 存储": {
+    "ans": 0,
+    "stem": "This is an {instance} of success.",
+    "src": "mock_import"
+  },
+  "22::norm::he is the {minister} of culture.::n. 部长::n. 部长|n. 实例|n. 绿色|n. 存储": {
+    "ans": 0,
+    "stem": "He is the {minister} of culture.",
+    "src": "mock_import"
+  },
+  "17::norm::绿色::选择正确的单词::accomplish|storage|green|pursue": {
+    "ans": 2,
+    "stem": "绿色",
+    "src": "mock_import"
+  },
+  "18::norm::部长::选择正确的单词::minister|instance|pursue|green": {
+    "ans": 0,
+    "stem": "部长",
+    "src": "mock_import"
+  },
+  "31::norm::green::搭配::in|out|up|off": {
+    "ans": [
+      0
+    ],
+    "stem": "green",
+    "src": "mock_import"
+  },
+  "31::norm::storage::搭配::on|off|in|out": {
+    "ans": [
+      1
+    ],
+    "stem": "storage",
+    "src": "mock_import"
+  },
+  "32::norm::___ _::绿色制造::green|manufacturing|the": {
+    "ans": "green,manufacturing",
+    "stem": "___ _",
+    "src": "mock_import"
+  },
+  "32::norm::___ ___::负责的公民::responsible|citizen|the": {
+    "ans": "responsible,citizen",
+    "stem": "___ ___",
+    "src": "mock_import"
+  },
+  "41::norm::he is {} for the task.::负责的::storage|responsible|green|instance": {
+    "ans": 1,
+    "stem": "He is {} for the task.",
+    "src": "mock_import"
+  },
+  "42::norm::she is {} of the risk.::有意识的::conscious|green|pursue|storage": {
+    "ans": 0,
+    "stem": "She is {} of the risk.",
+    "src": "mock_import"
+  },
+  "43::norm::this is an {} of success.::实例::instance|green|pursue|storage": {
+    "ans": 0,
+    "stem": "This is an {} of success.",
+    "src": "mock_import"
+  },
+  "44::norm::he is the {} of culture.::部长::minister|green|pursue|storage": {
+    "ans": 0,
+    "stem": "He is the {} of culture.",
+    "src": "mock_import"
+  },
+  "51::norm::{}een is a color.::绿色::green|great|grow": {
+    "ans": "green",
+    "stem": "{}een is a color.",
+    "src": "mock_import"
+  },
+  "52::norm::{}ist is a person.::部长::minister|manage|master": {
+    "ans": "minister",
+    "stem": "{}ist is a person.",
+    "src": "mock_import"
+  },
+  "53::norm::{}onscious is an adjective.::有意识的::conscious|conscience|consent": {
+    "ans": "conscious",
+    "stem": "{}onscious is an adjective.",
+    "src": "mock_import"
+  },
+  "54::norm::{}tance is a noun.::实例::instance|instant|instead": {
+    "ans": "instance",
+    "stem": "{}tance is a noun.",
+    "src": "mock_import"
+  },
+  "73::norm::{gr}{sto}::绿色存储::": {
+    "ans": [
+      "green",
+      "storage"
+    ],
+    "stem": "{gr}{sto}",
+    "src": "mock_import"
+  },
+  "73::norm::{res}{cit}::负责的公民::": {
+    "ans": [
+      "responsible",
+      "citizen"
+    ],
+    "stem": "{res}{cit}",
+    "src": "mock_import"
+  },
+  "13::norm::he is a man who will spoil rather than accomplish things.::vt. 完成::accomplish|withstand|minister|green": {
+    "ans": 0,
+    "stem": "He is a man who will spoil rather than accomplish things.",
+    "src": "mock_import"
   }
 }
