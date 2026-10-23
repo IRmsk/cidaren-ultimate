@@ -1,23 +1,25 @@
 # cidaren-ultimate - 来源与许可审计
 
-本项目整合了多个开源项目的设计思路与实现，在此致谢并明确许可边界。
+本项目参考了多个开源项目的设计思路，在此致谢并明确许可边界。
 
 ## 许可状态
 
 - **本项目许可 / Project License**：MIT
 - **创建时间 / Created**：2026年10月
 
-## 参考项目 / Reference Projects
+## 技术思路参考
 
 | 项目 / Project | 参考内容 / Reference | 说明 / Notes |
 |------|----------|------|
-| easy_cidaren | 查词接口、jv=2_ 删位表格式 | 接口路径与解密思路参考 |
-| LangQi99/cidaren | API 客户端结构、jv=3_ 分片重排表、配置管理 | 核心逻辑参考 |
-| Cidaren-AI | AI prompt 模板、答题节奏、解析策略 | LLM 答题思路参考 |
-| xuhaoranbb-boop/vocabgo-auto | OCR 读图兜底、Mock Server 思路 | 测试与兜底策略参考 |
+| Easy_Cidaren | 查词接口、加解密方案设计思路 | 接口路径与加解密思路参考 |
+| LangQi99/cidaren | API 客户端结构、配置管理思路 | 核心逻辑参考 |
+| Cidaren-AI | AI prompt 模板、答题节奏控制 | LLM 答题思路参考 |
+| vocabgo-auto | OCR 读图兜底、Mock Server 测试思路 | 测试与兜底策略参考 |
 
 ## 实现说明
 
 本项目在上述项目的设计思路基础上，独立实现了多源答案融合、自学习题库、Mock Server E2E 测试等功能，代码均为独立编写。
+
+本地题库为运行过程中自动采集与自学习累积，越用越准。
 
 如上游项目作者对本项目的使用方式有异议，请联系删除。
