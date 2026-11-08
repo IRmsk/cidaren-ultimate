@@ -640,7 +640,7 @@
         <div class="task-item">
           <div class="task-header">
             <div class="task-title">${i}. [${t.source_label || '任务'}] ${t.task_name || t.name || '未知任务'}</div>
-            <div class="task-status">${t.done ? '已完成' : (t.running ? '运行中' : '未开始')}</div>
+            <div class="task-status">${t.running ? '运行中' : (t.done ? '已完成' : (t.state_label || '可作答'))}</div>
           </div>
           <div class="progress-bar">
             <div class="progress-fill" style="width: ${t.progress || 0}%"></div>
@@ -649,30 +649,57 @@
             <span>进度: ${t.progress || 0}%</span>
             <span>分数: ${t.score || 0}</span>
           </div>
-          <div class="task-actions">
-            <button class="btn btn-primary btn-sm" onclick="startTask('${t.source}', '${t.task_id}', '${t.release_id}')">启动</button>
-            <button class="btn btn-warning btn-sm" onclick="loopTask('${t.source}', '${t.task_id}', '${t.release_id}')">循环</button>
-            <button class="btn btn-danger btn-sm" onclick="stopTask('${t.source}', '${t.task_id}', '${t.release_id}')">停止</button>
-            <button class="btn btn-outline btn-sm" onclick="showLog('${t.source}', '${t.task_id}', '${t.release_id}')">日志</button>
-          </div>
+          <div class="task-actions">${taskActions(t)}</div>
         </div>
       `).join('');
     }
     
+    // 任务卡片的按钮参数：task_type / course_id / list_id / grade 都要带下去，
+    // 否则后端只能猜（班级任务 type=1 选词、type=2 整周，猜错就是「任务类型错误」）
+    function _taskArgs(t) {
+      const a = [t.source, String(t.task_id), String(t.release_id),
+                 (t.task_type === undefined ? null : t.task_type),
+                 t.course_id || '', t.list_id || String(t.release_id),
+                 (t.grade === undefined ? null : t.grade)];
+      return a.map(function (v) { return JSON.stringify(v); }).join(', ');
+    }
+
+    function taskActions(t) {
+      const args = _taskArgs(t);
+      if (t.can_start === false) {
+        return `<span style="font-size:12px;color:#c62828">${t.state_label || '不可作答'}，暂不能作答</span>`;
+      }
+      const src = JSON.stringify(t.source);
+      const tid = JSON.stringify(String(t.task_id));
+      const rid = JSON.stringify(String(t.release_id));
+      return `<button class="btn btn-primary btn-sm" onclick='startTask(${args})'>启动</button>
+              <button class="btn btn-warning btn-sm" onclick='loopTask(${args})'>循环</button>
+              <button class="btn btn-danger btn-sm" onclick='stopTask(${src}, ${tid}, ${rid})'>停止</button>
+              <button class="btn btn-outline btn-sm" onclick='showLog(${src}, ${tid}, ${rid})'>日志</button>`;
+    }
+
     // 启动 / 循环（同一个接口，loop 开关区分）
-    async function _startJob(source, taskId, releaseId, loop) {
+    async function _startJob(source, taskId, releaseId, loop, taskType, courseId, listId, grade) {
       const r = await fetch('/api/start', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({source: source, task_id: taskId, release_id: releaseId, loop: loop})
+        body: JSON.stringify({
+          source: source, task_id: taskId, release_id: releaseId, loop: loop,
+          task_type: taskType, course_id: courseId || undefined,
+          list_id: listId || undefined, grade: (grade === null ? undefined : grade)
+        })
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.ok) { alert('启动失败: ' + (d.error || ('HTTP ' + r.status))); return; }
       loadTasks();
       showLog(source, taskId, releaseId);
     }
-    function startTask(source, taskId, releaseId) { _startJob(source, taskId, releaseId, false); }
-    function loopTask(source, taskId, releaseId) { _startJob(source, taskId, releaseId, true); }
+    function startTask(source, taskId, releaseId, taskType, courseId, listId, grade) {
+      _startJob(source, taskId, releaseId, false, taskType, courseId, listId, grade);
+    }
+    function loopTask(source, taskId, releaseId, taskType, courseId, listId, grade) {
+      _startJob(source, taskId, releaseId, true, taskType, courseId, listId, grade);
+    }
 
     // 停止任务
     async function stopTask(source, taskId, releaseId) {

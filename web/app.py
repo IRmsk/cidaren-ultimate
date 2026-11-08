@@ -137,6 +137,22 @@ def _list_study_tasks(c, course_id):
     return data.get("task_list") or []
 
 
+def _task_window(raw):
+    """按 start_time / over_time 判断任务是否可作答（班级任务才带这两个字段）。
+
+    未开始的任务 task_id 还是 -1，直接 StartAnswer 会被服务端回「任务未生效！」，
+    已截止的任务同样无法作答，所以列表要提前标出来，别让用户点了白跑 4 轮重试。
+    """
+    now_ms = int(time.time() * 1000)
+    start = raw.get("start_time") or 0
+    over = raw.get("over_time") or 0
+    if start and start > now_ms:
+        return False, "未开始"
+    if start and over and start + over <= now_ms:
+        return False, "已截止"
+    return True, "可作答"
+
+
 def _list_tasks():
     """
     汇总班级 + 自学两类任务，并附带每个任务当前的运行状态
@@ -152,8 +168,10 @@ def _list_tasks():
         for r in _list_class_tasks(c):
             tid, rid = r.get("task_id"), r.get("release_id")
             job = _find_job("class", tid, rid)
+            can, state = _task_window(r)
             out.append({
-                "source": "class", "source_label": "班级", "can_start": True,
+                "source": "class", "source_label": "班级", "can_start": can,
+                "state_label": state,
                 "task_id": tid, "release_id": rid, "task_name": r.get("task_name"),
                 "progress": r.get("progress"), "score": r.get("score"),
                 "running": bool(job and not job["done"]), "done": bool(job and job["done"]),
@@ -169,6 +187,7 @@ def _list_tasks():
             job = _find_job("study", tid, rid)
             out.append({
                 "source": "study", "source_label": "自学", "can_start": True,
+                "state_label": "可作答",
                 "task_id": tid, "release_id": rid, "course_id": r.get("course_id") or course_id,
                 "list_id": rid, "task_type": r.get("task_type"),
                 "grade": _int_or_default(r.get("grade"), study_grade),
@@ -425,13 +444,33 @@ def api_start():
         release_id = int(release_id)
     course_id = body.get("course_id")
     list_id = body.get("list_id") or release_id
-    task_type = int(body.get("task_type") or 3)
+    task_type = body.get("task_type")
     config = get_runtime_config()
     grade = _int_or_default(body.get("grade") or config.get("STUDY_GRADE"), 2)
     loop = bool(body.get("loop", False))
     missing = get_missing_auth_fields(config)
     if missing:
         return jsonify({"ok": False, "error": f"请先填写配置: {', '.join(missing)}"}), 400
+
+    # 任务类型不能瞎给默认值：班级任务有 type=1(选词) / type=2(整周)，
+    # 用错类型服务端直接回「任务类型错误」。前端没传就去任务列表里查真实值。
+    if task_type in (None, "", 0):
+        task_type = None
+        try:
+            for t in _list_tasks()[0]:
+                if (t["source"] == source and str(t["task_id"]) == str(task_id)
+                        and str(t["release_id"]) == str(release_id)):
+                    task_type = t.get("task_type")
+                    can_start = t.get("can_start", True)
+                    state_label = t.get("state_label", "可作答")
+                    break
+            else:
+                can_start, state_label = True, "可作答"
+        except Exception:
+            can_start, state_label = True, "可作答"
+        if not can_start:
+            return jsonify({"ok": False, "error": f"该任务{state_label}，无法作答（请等它开放或换一个任务）"}), 400
+    task_type = int(task_type or (3 if source == "study" else 1))
     with JOBS_LOCK:
         job = _find_job(source, task_id, release_id)
         if job and not job["done"]:
@@ -463,6 +502,10 @@ def api_start_all():
                     skipped += 1
                     continue
                 if r.get("score") is not None and r.get("score") >= 100:
+                    skipped += 1
+                    continue
+                if not _task_window(r)[0]:
+                    # 未开始 / 已截止的任务硬跑只会空转 4 轮，直接跳过
                     skipped += 1
                     continue
                 _spawn_job("class", tid, rid, loop=True, config=config,
