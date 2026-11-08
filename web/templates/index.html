@@ -332,9 +332,33 @@
       border-radius: 3px;
     }
     
+    /* 日志行：结构化徽章渲染（颜色语义 对=绿 / 学=橙 / 答=琥珀 / 失败=红） */
     .log-line {
-      margin-bottom: 2px;
+      display: flex; align-items: baseline; gap: 6px;
+      padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,.06);
+      word-break: break-word;
     }
+    .log-line:hover { background: rgba(255,255,255,.04); }
+    .lg-mode { flex: none; font-size: 11px; color: #94a3b8; background: rgba(255,255,255,.08); border-radius: 4px; padding: 1px 5px; }
+    .lg-badge { flex: none; font-size: 11px; font-weight: 600; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+    .lg-badge.ok { color: #34c759; background: rgba(52,199,89,.16); }
+    .lg-badge.fix { color: #ff9f0a; background: rgba(255,159,10,.16); }
+    .lg-badge.ask { color: #ffd60a; background: rgba(255,214,10,.14); }
+    .lg-badge.err { color: #ff453a; background: rgba(255,69,58,.16); }
+    .lg-msg { flex: 1 1 auto; color: #e2e8f0; white-space: normal; }
+    .lg-msg.muted { color: #94a3b8; }
+    .lg-msg.err { color: #ff8a80; }
+    .lg-src { flex: none; font-size: 11px; border-radius: 4px; padding: 1px 6px; white-space: nowrap; color: #a9b7d4; background: rgba(138,155,180,.14); }
+    .lg-src.rule { color: #64d2ff; background: rgba(100,210,255,.14); }
+    .lg-src.llm { color: #7db3ff; background: rgba(10,132,255,.18); }
+    .lg-src.corrects { color: #c58cf5; background: rgba(191,90,242,.16); }
+    .lg-src.cache { color: #30d158; background: rgba(48,209,88,.14); }
+    .lg-src.blank { color: #ff9f0a; background: rgba(255,159,10,.14); }
+    .lg-tag { flex: none; font-size: 11px; font-weight: 600; border-radius: 4px; padding: 1px 6px; white-space: nowrap; color: #7db3ff; background: rgba(10,132,255,.16); }
+    .lg-tag.ok { color: #34c759; background: rgba(52,199,89,.16); }
+    .lg-tag.err { color: #ff453a; background: rgba(255,69,58,.16); }
+    .lg-tag.info { color: #94a3b8; background: rgba(255,255,255,.08); }
+    .lg-divider { flex: 1 1 auto; color: #64748b; }
     
     .log-ok { color: #4ade80; }
     .log-warn { color: #facc15; }
@@ -713,26 +737,84 @@
       loadTasks();
     }
     
+    // 日志渲染：把每行原始日志转成结构化徽章（v2.4 的 renderLogLine，重构时丢掉了，这里补回）
+    function renderLogLine(line) {
+      const t = String(line || '').trim();
+      if (!t) return '';
+      // 1) 轮次分隔行：──── 第 2 轮启动 ────
+      if (/^[-─=]{3,}/.test(t)) {
+        return `<div class="log-line"><span class="lg-divider">${escapeHtml(t)}</span></div>`;
+      }
+      // 2) 答题行：[15]? 答题 ... [rule]（兼容全角问号紧贴）
+      let m = t.match(/^(\[\d+\])(?:[?？]\s*|\s+)(.+?)\s+\[([a-z_]+)\]$/i);
+      if (m) {
+        const modeTag = m[1], body = m[2], src = m[3].toLowerCase();
+        const s = body.toUpperCase();
+        let badge = '题', badgeCls = 'ask';
+        if (s.startsWith('OK')) { badge = '对'; badgeCls = 'ok'; }
+        else if (s.startsWith('FIX')) { badge = '学'; badgeCls = 'fix'; }
+        else if (s.startsWith('SKIP')) { badge = '跳'; badgeCls = 'err'; }
+        else if (s.includes('答题') || body.startsWith('?')) { badge = '答'; badgeCls = 'ask'; }
+        const srcLabel = {rule: '规则', llm: 'AI', corrects: '纠错', cache: '题库',
+                          blank: '试探', skip: '跳过', dict: '词典', sem: '语义'}[src] || src;
+        const clean = body.replace(/^[?？]\s*/, '') || '答题';
+        return `<div class="log-line"><span class="lg-mode">${modeTag}</span>` +
+               `<span class="lg-badge ${badgeCls}">${badge}</span>` +
+               `<span class="lg-msg">${escapeHtml(clean)}</span>` +
+               `<span class="lg-src ${src}">${escapeHtml(srcLabel)}</span></div>`;
+      }
+      // 3) 题目行：[15] 题目 stem...（无来源徽章）
+      m = t.match(/^(\[\d+\])\s+(.+)$/);
+      if (m) {
+        const modeTag = m[1], body = m[2];
+        const isStem = body.startsWith('题目');
+        return `<div class="log-line"><span class="lg-mode">${modeTag}</span>` +
+               `<span class="lg-badge ask">${isStem ? '题' : '答'}</span>` +
+               `<span class="lg-msg muted">${escapeHtml(body)}</span></div>`;
+      }
+      // 4) 区块行：[词表] 共 0 词 / [StartAnswer 异常] {...}
+      m = t.match(/^\[([^\]]+)\]\s*(.*)$/);
+      if (m) {
+        const head = m[1], rest = m[2];
+        let cls = 'info';
+        if (/(异常|失败|超时|风控|网络|重试|保护|卡住|放弃|错误)/.test(head)
+            || /(失败|异常|错误|超时|放弃)/.test(rest)) cls = 'err';
+        else if (/(满分|完成|成功|签到)/.test(head)) cls = 'ok';
+        else if (head === '分数' && rest.trim() === '100') cls = 'ok';
+        return `<div class="log-line"><span class="lg-tag ${cls}">${escapeHtml(head)}</span>` +
+               `<span class="lg-msg ${cls === 'err' ? 'err' : 'muted'}">${escapeHtml(rest)}</span></div>`;
+      }
+      // 5) 兜底：普通文本
+      return `<div class="log-line"><span class="lg-msg muted">${escapeHtml(t)}</span></div>`;
+    }
+
+    function renderLogLines(lines) {
+      return (lines || []).map(renderLogLine).join('');
+    }
+
     // 显示日志
+    let _logSeq = 0;
+
     function showLog(source, taskId, releaseId) {
       document.getElementById('log-card').style.display = 'block';
       document.getElementById('log-title').textContent = '任务日志';
       document.getElementById('log-subtitle').textContent = `${taskId} / ${releaseId}`;
-      pollLog(source, taskId, releaseId);
+      _logSeq += 1;
+      pollLog(source, taskId, releaseId, _logSeq);
     }
     
-    // 轮询日志
-    async function pollLog(source, taskId, releaseId) {
+    // 轮询日志（seq 用于作废上一个任务的轮询，避免两个循环抢同一个面板）
+    async function pollLog(source, taskId, releaseId, seq) {
+      if (seq !== _logSeq) return;
       try {
         const resp = await fetch(`/api/logs?source=${source}&task_id=${taskId}&release_id=${releaseId}`);
         const data = await resp.json();
+        if (seq !== _logSeq) return;
         const panel = document.getElementById('log-panel');
-        panel.innerHTML = (data.logs || []).map(l => 
-          `<div class="log-line">${escapeHtml(l)}</div>`
-        ).join('');
+        panel.innerHTML = renderLogLines(data.logs);
         panel.scrollTop = panel.scrollHeight;
         if (document.getElementById('log-card').style.display !== 'none') {
-          setTimeout(() => pollLog(source, taskId, releaseId), 2000);
+          setTimeout(() => pollLog(source, taskId, releaseId, seq), 2000);
         }
       } catch (e) {}
     }
