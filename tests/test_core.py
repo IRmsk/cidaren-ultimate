@@ -338,6 +338,22 @@ class TestSecurityVerifyHandling(unittest.TestCase):
 
 
 class TestConfig(unittest.TestCase):
+    def test_empty_value_falls_back_to_default(self):
+        # Web 面板保存会把全部输入框（含空白的）整批写回 .env，形成 COURSE_ID= 这种空行；
+        # 空串必须回退默认值，否则默认课程/节奏/轮数会被悄悄抹平。
+        for k in ("COURSE_ID", "STUDY_GRADE", "LLM_MAX_TOKENS", "AI_PRIORITY"):
+            os.environ.pop(k, None)
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, "empty.env")
+            set_env_file(p)
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("COURSE_ID=\nSTUDY_GRADE=\nLLM_MAX_TOKENS=\nAI_PRIORITY=\n")
+            cfg = get_runtime_config()
+            self.assertEqual(cfg["COURSE_ID"], "CET4_v2")
+            self.assertEqual(cfg["STUDY_GRADE"], "2")
+            self.assertEqual(cfg["LLM_MAX_TOKENS"], "1024")
+            self.assertEqual(cfg["AI_PRIORITY"], "1")
+
     def test_env_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = os.path.join(tmp, "x.env")

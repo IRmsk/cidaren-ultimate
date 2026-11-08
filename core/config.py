@@ -132,6 +132,11 @@ def get_runtime_config() -> dict:
     for key in CONFIG_FIELDS:
         if key in os.environ:
             config[key] = os.environ[key]
+        # 空值一律视为「未设置」并回退默认值：
+        # Web 面板保存时会把所有输入框（含空白的）整体写回 .env，
+        # 若不回退，COURSE_ID / AI_PRIORITY / MAX_ROUNDS 等默认值会被空串抹掉。
+        if not str(config.get(key) or "").strip() and DEFAULT_CONFIG.get(key, ""):
+            config[key] = DEFAULT_CONFIG[key]
     return config
 
 

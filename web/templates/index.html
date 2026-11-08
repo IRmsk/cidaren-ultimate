@@ -619,21 +619,18 @@
       if (refreshTasks) loadTasks();
     }
     
-    // 加载统计
-    async function loadStats() {
-      try {
-        const resp = await fetch('/api/config');
-        const cfg = await resp.json();
-        document.getElementById('stats-box').textContent = '答案库统计';
-      } catch (e) {}
-    }
-    
+    // 加载统计：counts 随 /api/tasks 一起返回，由 loadTasks() 落盘，此处不再重复请求
+    function loadStats() {}
+
     // 加载任务
     async function loadTasks() {
       const resp = await fetch('/api/tasks');
       const data = await resp.json();
       // 接口返回 {ok, tasks, stats, warnings}，任务列表在 data.tasks 里
       const tasks = (data && data.tasks) || [];
+      const st = (data && data.stats) || {};
+      const box = document.getElementById('stats-box');
+      if (box) box.textContent = `题库 ${st.bank || 0} · 词库 ${st.word || 0} · 短语 ${st.phrase || 0} · 词池 ${st.pool || 0}`;
       const list = document.getElementById('task-list');
       if (!tasks.length) {
         list.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 40px;">暂无任务</p>';
@@ -655,30 +652,38 @@
           <div class="task-actions">
             <button class="btn btn-primary btn-sm" onclick="startTask('${t.source}', '${t.task_id}', '${t.release_id}')">启动</button>
             <button class="btn btn-warning btn-sm" onclick="loopTask('${t.source}', '${t.task_id}', '${t.release_id}')">循环</button>
+            <button class="btn btn-danger btn-sm" onclick="stopTask('${t.source}', '${t.task_id}', '${t.release_id}')">停止</button>
             <button class="btn btn-outline btn-sm" onclick="showLog('${t.source}', '${t.task_id}', '${t.release_id}')">日志</button>
           </div>
         </div>
       `).join('');
     }
     
-    // 启动任务
-    async function startTask(source, taskId, releaseId) {
-      await fetch('/api/start', {
+    // 启动 / 循环（同一个接口，loop 开关区分）
+    async function _startJob(source, taskId, releaseId, loop) {
+      const r = await fetch('/api/start', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({source, task_id: taskId, release_id: releaseId, loop: false})
+        body: JSON.stringify({source: source, task_id: taskId, release_id: releaseId, loop: loop})
       });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) { alert('启动失败: ' + (d.error || ('HTTP ' + r.status))); return; }
+      loadTasks();
       showLog(source, taskId, releaseId);
     }
-    
-    // 循环任务
-    async function loopTask(source, taskId, releaseId) {
-      await fetch('/api/start', {
+    function startTask(source, taskId, releaseId) { _startJob(source, taskId, releaseId, false); }
+    function loopTask(source, taskId, releaseId) { _startJob(source, taskId, releaseId, true); }
+
+    // 停止任务
+    async function stopTask(source, taskId, releaseId) {
+      const r = await fetch('/api/stop', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({source, task_id: taskId, release_id: releaseId, loop: true})
+        body: JSON.stringify({source: source, task_id: taskId, release_id: releaseId})
       });
-      showLog(source, taskId, releaseId);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) { alert('停止失败: ' + (d.error || ('HTTP ' + r.status))); return; }
+      loadTasks();
     }
     
     // 显示日志
@@ -710,20 +715,108 @@
       document.getElementById('log-card').style.display = 'none';
     }
     
-    // 断点恢复
+    // 断点恢复（后端路由是 /api/start_all）
     async function resumeAll() {
-      await fetch('/api/resume', {method: 'POST'});
-      alert('断点恢复已启动');
+      const r = await fetch('/api/start_all', {method: 'POST'});
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) { alert('断点恢复失败: ' + (d.error || ('HTTP ' + r.status))); return; }
+      alert(`断点恢复已启动：新启动 ${d.started || 0} 个，跳过 ${d.skipped || 0} 个`);
+      loadTasks();
     }
-    
+
     // 校验 Token
     async function checkToken() {
-      alert('校验中...');
+      const pill = document.getElementById('config-pill');
+      try {
+        const r = await fetch('/api/token_check');
+        const d = await r.json();
+        if (d.ok) {
+          pill.textContent = 'Token 有效: ' + d.name;
+          pill.className = 'status-badge status-ok';
+          return;
+        }
+        pill.textContent = 'Token 无效';
+        pill.className = 'status-badge status-warn';
+        alert((d.error || 'Token 无效') + (d.hint ? '\n' + d.hint : ''));
+      } catch (e) {
+        alert('请求失败: ' + (e && e.message ? e.message : e));
+      }
     }
-    
-    // 打开扫码
-    function openQr() {
-      alert('扫码登录功能');
+
+    // 微信扫码登录
+    async function openQr() {
+      try {
+        const r = await fetch('/api/login_qr', {method: 'POST'});
+        const d = await r.json();
+        if (!d.ok || !d.qr_base64) { alert('生成二维码失败: ' + ((d && d.error) || ('HTTP ' + r.status))); return; }
+        const mask = document.createElement('div');
+        mask.id = 'qr-mask';
+        mask.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:99';
+        mask.innerHTML = `<div style="background:#fff;padding:20px;border-radius:12px;text-align:center;max-width:320px">
+            <h3 style="margin:0 0 10px">微信扫码登录</h3>
+            <img src="data:image/png;base64,${d.qr_base64}" style="width:240px;height:240px" />
+            <p id="qr-status" style="font-size:13px;color:#666;margin:10px 0">扫码并在手机确认，Token 会自动写入配置</p>
+            <button class="btn btn-outline btn-sm" onclick="closeQr()">取消</button>
+          </div>`;
+        document.body.appendChild(mask);
+        pollQr();
+      } catch (e) {
+        alert('请求失败: ' + (e && e.message ? e.message : e));
+      }
+    }
+
+    function closeQr() {
+      const m = document.getElementById('qr-mask');
+      if (m) m.remove();
+    }
+
+    async function pollQr() {
+      const el = document.getElementById('qr-status');
+      if (!el) return;
+      try {
+        const r = await fetch('/api/login_poll');
+        const d = await r.json();
+        if (d.ok) {
+          el.textContent = '✓ 登录成功: ' + d.name;
+          el.style.color = '#0a7d32';
+          setTimeout(function () { closeQr(); loadConfig(); checkToken(); loadTasks(); }, 1500);
+          return;
+        }
+        if (d.error && !d.pending) {
+          el.textContent = '✗ ' + d.error;
+          el.style.color = '#c62828';
+          return;
+        }
+        el.textContent = '等待扫码…';
+        setTimeout(pollQr, 2000);
+      } catch (e) {
+        setTimeout(pollQr, 2000);
+      }
+    }
+
+    // 测试报告
+    async function loadReports() {
+      try {
+        const r = await fetch('/api/reports');
+        const d = await r.json();
+        const list = (d && d.reports) || [];
+        const rows = list.length ? list.map(x => `
+            <div onclick="showReportDetail(this.dataset.key)" data-key="${escapeHtml(x.key || '')}" style="cursor:pointer;display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #eee;font-size:13px">
+              <span style="word-break:break-all">${escapeHtml(x.key || x.file || '')}</span>
+              <span style="white-space:nowrap">${x.ok || 0}/${x.total || 0} · ${x.accuracy || 0}%${x.avg_duration ? ' · ' + x.avg_duration + 's/题' : ''}</span>
+            </div>`).join('')
+          : '<p style="color:#888">还没有测试报告，先跑一个任务</p>';
+        const mask = document.createElement('div');
+        mask.id = 'report-mask';
+        mask.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:99';
+        mask.innerHTML = `<div style="background:#fff;padding:20px;border-radius:12px;max-width:560px;width:90%;max-height:70vh;overflow:auto">
+            <h3 style="margin:0 0 12px">测试报告（${list.length} 个）</h3>${rows}
+            <div style="text-align:right;margin-top:12px"><button class="btn btn-outline btn-sm" onclick="this.closest('#report-mask').remove()">关闭</button></div>
+          </div>`;
+        document.body.appendChild(mask);
+      } catch (e) {
+        alert('请求失败: ' + (e && e.message ? e.message : e));
+      }
     }
     
     // 测试 AI
@@ -757,6 +850,20 @@
       }
     }
     
+    // 单份报告明细（点报告行触发）
+    async function showReportDetail(key) {
+      if (!key) return;
+      try {
+        const r = await fetch('/api/report?key=' + encodeURIComponent(key));
+        const d = await r.json();
+        if (!d.ok) { alert(d.error || '读取失败'); return; }
+        const s = d.stats || {};
+        alert(`${key}\n\n总题: ${s.total || 0}　答对: ${s.ok || 0}　答错: ${s.fail || 0}\n正确率: ${s.accuracy || 0}%\n平均耗时: ${s.avg_duration === null || s.avg_duration === undefined ? '-' : s.avg_duration + 's/题'}\n来源分布: ${JSON.stringify(s.src_dist || {})}`);
+      } catch (e) {
+        alert('请求失败: ' + (e && e.message ? e.message : e));
+      }
+    }
+
     // HTML 转义
     function escapeHtml(text) {
       const div = document.createElement('div');

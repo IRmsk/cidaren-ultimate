@@ -196,7 +196,7 @@ def llm_answer(topic: dict, word_defs: dict = None, task_words: list = None, con
 
 def check_llm_connectivity(llm_url: str, llm_key: str,
                           llm_model: str = "deepseek-chat",
-                          max_tokens: int = 32) -> dict:
+                          max_tokens: int = 512) -> dict:
     """测试 LLM 接口连通性：发一个最小请求并返回结构化结果。
 
     用于 Web 控制台「测试 AI 连接」按钮（表单当前值即可测，无需先保存）。
@@ -205,8 +205,10 @@ def check_llm_connectivity(llm_url: str, llm_key: str,
     llm_url = (llm_url or "").strip()
     llm_key = (llm_key or "").strip()
     llm_model = (llm_model or "deepseek-chat").strip() or "deepseek-chat"
-    # 前端表单传来的是字符串（如 "1024"），严格校验的网关要求 max_tokens 是整数
-    max_tokens = as_int(max_tokens, 32)
+    # 前端表单传来的是字符串（如 "1024"），严格校验的网关要求 max_tokens 是整数；
+    # 推理型模型（reasoning_content）只给 32 token 会全部耗在思考里、content 为空，
+    # 测出来是「连接失败」，所以兜底给 512。
+    max_tokens = as_int(max_tokens, 512)
     if not llm_url:
         return {"ok": False, "latency_ms": 0, "reply": "", "error": "未填写 LLM_URL"}
     if not llm_key:
