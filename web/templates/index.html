@@ -718,13 +718,32 @@
     
     // 测试 AI
     async function testLLM() {
-      document.getElementById('llm-test-result').textContent = '测试中...';
+      const el = document.getElementById('llm-test-result');
+      el.textContent = '测试中...';
+      el.style.color = '';
       try {
-        const resp = await fetch('/api/test_llm', {method: 'POST'});
+        const resp = await fetch('/api/test_llm', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          // 带上表单当前值：未保存也能测，不再回退到 .env 里的旧配置
+          body: JSON.stringify({
+            llm_url: (document.getElementById('LLM_URL') || {}).value || '',
+            llm_key: (document.getElementById('LLM_KEY') || {}).value || '',
+            llm_model: (document.getElementById('LLM_MODEL') || {}).value || '',
+            llm_max_tokens: (document.getElementById('LLM_MAX_TOKENS') || {}).value || ''
+          })
+        });
         const data = await resp.json();
-        document.getElementById('llm-test-result').textContent = data.ok ? '✓ 连接成功' : '✗ 连接失败';
+        if (data.ok) {
+          el.style.color = '#0a7d32';
+          el.textContent = '✓ 连接成功 ' + (data.latency_ms || 0) + 'ms';
+        } else {
+          el.style.color = '#c62828';
+          el.textContent = '✗ ' + (data.error || ('HTTP ' + resp.status));
+        }
       } catch (e) {
-        document.getElementById('llm-test-result').textContent = '✗ 连接失败';
+        el.style.color = '#c62828';
+        el.textContent = '✗ 请求失败: ' + (e && e.message ? e.message : e);
       }
     }
     

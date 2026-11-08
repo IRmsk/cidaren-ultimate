@@ -13,12 +13,21 @@ import uuid
 
 import requests
 
-from core.config import as_int, get_runtime_config
+from core.config import as_int, get_runtime_config, log
 
 
 def _chat_completions_url(llm_url: str) -> str:
+    """把用户填的 base 归一成 chat/completions 端点。
+
+    兼容三种常见填法，避免拼出 ".../chat/completions/v1/chat/completions"：
+    1. 完整端点（.../v1/chat/completions）→ 原样使用
+    2. 带版本号的 base（.../v1、.../api/v3、.../compatible-mode/v1）→ 只补 /chat/completions
+    3. 裸 base（https://api.deepseek.com）→ 补 /v1/chat/completions
+    """
     base = llm_url.rstrip("/")
-    if base.endswith("/v1"):
+    if base.endswith("/chat/completions"):
+        return base
+    if base.endswith("/v1") or re.search(r"/v\d+$", base):
         return f"{base}/chat/completions"
     return f"{base}/v1/chat/completions"
 
@@ -180,6 +189,8 @@ def llm_answer(topic: dict, word_defs: dict = None, task_words: list = None, con
         except Exception as e:
             last_err = str(e)
             continue
+    # 4 次都失败：必须留痕，否则答题侧只会静默兜底，用户无法定位是 401/404/超时
+    log(f"[AI] 调用失败(共4次): {last_err}")
     return None
 
 
@@ -231,8 +242,13 @@ def check_llm_connectivity(llm_url: str, llm_key: str,
         if not choices:
             return {"ok": False, "latency_ms": latency, "reply": "",
                     "error": f"响应缺少 choices: {str(rj)[:120]}"}
+        if not str(content).strip():
+            # 接口通但模型不返回内容（如只输出 reasoning_content 的推理模型）：
+            # 答题时会被判定为"解析结果为空"，这里必须报失败，不能显示连接成功
+            return {"ok": False, "latency_ms": latency, "reply": "",
+                    "error": "接口可访问但模型未返回 content（推理模型请改用非 reasoning 模型）"}
         return {"ok": True, "latency_ms": latency,
-                "reply": content.strip()[:60] or "（空回复）", "error": ""}
+                "reply": content.strip()[:60], "error": ""}
     except requests.Timeout:
         return {"ok": False, "latency_ms": int((time.time() - t0) * 1000),
                 "reply": "", "error": "连接超时（10s/30s），检查 LLM_URL 或网络"}

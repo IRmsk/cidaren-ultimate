@@ -328,7 +328,8 @@ def api_test_llm():
 
     参数缺省回退到 .env 已保存配置；返回 {"ok", "latency_ms", "reply", "error"}。
     """
-    body = request.get_json(force=True) or {}
+    # silent=True：无 body / 非 JSON 时不抛 400，而是回退到已保存配置
+    body = request.get_json(force=True, silent=True) or {}
     cfg = get_runtime_config()
     llm_url = (body.get("llm_url") or cfg.get("LLM_URL") or "").strip()
     llm_key = (body.get("llm_key") or cfg.get("LLM_KEY") or "").strip()

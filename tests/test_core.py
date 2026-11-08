@@ -260,6 +260,50 @@ class TestLLMConnectivity(unittest.TestCase):
         self.assertIn("401", r["error"])
 
 
+class TestLLMUrlAndEmptyContent(unittest.TestCase):
+    """回归：URL 拼接不能双拼；接口通但 content 为空不能判成功。"""
+
+    def test_full_endpoint_not_double_appended(self):
+        from core.ai import _chat_completions_url
+        for base in ("https://api.deepseek.com", "https://api.deepseek.com/v1",
+                     "https://api.deepseek.com/v1/chat/completions",
+                     "https://api.deepseek.com/"):
+            self.assertEqual(_chat_completions_url(base),
+                             "https://api.deepseek.com/v1/chat/completions")
+
+    def test_versioned_base_skips_v1(self):
+        from core.ai import _chat_completions_url
+        # 火山方舟 /api/v3：版本号已在路径里，不能再补 /v1
+        self.assertEqual(_chat_completions_url("https://ark.cn-beijing.volces.com/api/v3"),
+                         "https://ark.cn-beijing.volces.com/api/v3/chat/completions")
+        self.assertEqual(_chat_completions_url("https://dashscope.aliyuncs.com/compatible-mode/v1"),
+                         "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+
+    def test_ollama_local_base(self):
+        from core.ai import _chat_completions_url
+        self.assertEqual(_chat_completions_url("http://localhost:11434"),
+                         "http://localhost:11434/v1/chat/completions")
+
+    def test_empty_content_is_failure(self):
+        """推理模型只给 reasoning_content 时，测试按钮不能显示"连接成功"。"""
+        from unittest import mock
+
+        class FakeResp:
+            status_code = 200
+
+            def json(self):
+                return {"choices": [{"message": {"content": "", "reasoning_content": "思考"}}]}
+
+            @property
+            def text(self):
+                return "ok"
+
+        with mock.patch("core.ai.requests.post", return_value=FakeResp()):
+            r = check_llm_connectivity("https://api.deepseek.com", "sk-test", "deepseek-reasoner")
+        self.assertFalse(r["ok"])
+        self.assertIn("content", r["error"])
+
+
 class TestConfig(unittest.TestCase):
     def test_env_file(self):
         with tempfile.TemporaryDirectory() as tmp:
