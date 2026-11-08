@@ -42,6 +42,9 @@ def main():
         if ok:
             name = (info or {}).get("student_name") or (info or {}).get("nick_name") or "?"
             log(f"Token 有效: {name}")
+        elif isinstance(info, dict) and info.get("error") == "security_verify":
+            log(f"服务端要求安全验证（风控 11003）：{info.get('detail', '')}")
+            log("这不是 token 失效。请在手机 App/微信端重新登录并完成验证，再重新抓包更新 USERTOKEN/ABC/AUTH_V。")
         else:
             log("Token 无效或已过期")
         return

@@ -88,10 +88,16 @@ def _gateway_token_valid(user_token: str) -> bool:
 
 
 def is_token_valid(user_token: str, abc: str = "", auth_v: str = "") -> tuple:
-    """先新接口后旧接口验证。返回 (ok, info)。"""
+    """先新接口后旧接口验证。返回 (ok, info)。
+
+    服务端返回 11003（需安全验证）时直接透出原因：这是风控，不是 token 过期，
+    也不再去试已下线（404）的旧网关，避免把风控误报成"Token 无效"。
+    """
     ok, info = token_valid(user_token, abc, auth_v)
     if ok:
         return True, info
+    if isinstance(info, dict) and info.get("error") == "security_verify":
+        return False, info
     if _gateway_token_valid(user_token):
         return True, {"student_name": "?"}
     return False, None

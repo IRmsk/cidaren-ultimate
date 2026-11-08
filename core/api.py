@@ -228,10 +228,17 @@ class Client:
 
 
 def token_valid(usertoken: str, abc: str = "", auth_v: str = "") -> tuple:
-    """校验 token 有效性（复用 Student/Main）。返回 (ok, user_info)。"""
+    """校验 token 有效性（复用 Student/Main）。
+
+    返回 (ok, info)：成功时 info 是 user_info；服务端风控时 info 带
+    {"error": "security_verify", "detail": ...}，调用方据此给出可操作提示，
+    而不是笼统报"Token 无效"。
+    """
     c = Client(usertoken, abc, auth_v)
     try:
         resp = c._get("/Student/Main", {}, base=BASE)
+    except SecurityVerifyError as e:
+        return False, {"error": "security_verify", "detail": str(e)}
     except ApiError:
         return False, None
     if resp.get("code") == 1:

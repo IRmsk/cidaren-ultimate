@@ -365,6 +365,9 @@ def api_token_check():
     if ok:
         name = (info or {}).get("student_name") or (info or {}).get("nick_name") or "?"
         return jsonify({"ok": True, "name": name, "hint": hint})
+    if isinstance(info, dict) and info.get("error") == "security_verify":
+        return jsonify({"ok": False, "error": "服务端要求安全验证（风控 11003），不是 token 失效",
+                        "hint": "请在手机 App/微信端重新登录并完成验证，再抓包更新 USERTOKEN / ABC / AUTH_V"})
     return jsonify({"ok": False, "error": "Token 无效或已过期", "hint": hint})
 
 

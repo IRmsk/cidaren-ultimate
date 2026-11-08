@@ -304,6 +304,39 @@ class TestLLMUrlAndEmptyContent(unittest.TestCase):
         self.assertIn("content", r["error"])
 
 
+class TestSecurityVerifyHandling(unittest.TestCase):
+    """回归：风控 11003 不能被吞成"Token 无效"，也不能抛 traceback。"""
+
+    def test_token_valid_reports_security_verify(self):
+        from unittest import mock
+        import core.api as api_mod
+
+        with mock.patch.object(api_mod.Client, "_get",
+                               side_effect=api_mod.SecurityVerifyError("服务端需安全验证: 需安全验证！")):
+            ok, info = api_mod.token_valid("fake-token")
+        self.assertFalse(ok)
+        self.assertEqual(info.get("error"), "security_verify")
+        self.assertIn("安全验证", info.get("detail", ""))
+
+    def test_is_token_valid_skips_dead_gateway_on_risk_control(self):
+        from unittest import mock
+        import core.login as login_mod
+
+        called = {"gateway": 0}
+
+        def fake_gateway(*a, **kw):
+            called["gateway"] += 1
+            return False
+
+        with mock.patch.object(login_mod, "token_valid",
+                               return_value=(False, {"error": "security_verify"})), \
+             mock.patch.object(login_mod, "_gateway_token_valid", side_effect=fake_gateway):
+            ok, info = login_mod.is_token_valid("fake-token")
+        self.assertFalse(ok)
+        self.assertEqual(info.get("error"), "security_verify")
+        self.assertEqual(called["gateway"], 0, "风控时不应再请求已下线的旧网关")
+
+
 class TestConfig(unittest.TestCase):
     def test_env_file(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -586,27 +586,35 @@
     // 加载配置
     async function loadConfig() {
       const resp = await fetch('/api/config');
-      const cfg = await resp.json();
+      const data = await resp.json();
+      // 注意：接口返回 {ok, config, env_file, ...}，字段在 data.config 里
+      const cfg = data.config || {};
       for (const [k, v] of Object.entries(cfg)) {
         const el = document.getElementById(k);
-        if (el) el.value = v || '';
+        if (el) el.value = (v === null || v === undefined) ? '' : v;
       }
       document.getElementById('config-pill').textContent = '已加载';
       document.getElementById('config-pill').className = 'status-badge status-ok';
       loadStats();
     }
-    
+
     // 保存配置
     async function saveConfig(refreshTasks) {
       const cfg = {};
       document.querySelectorAll('input').forEach(el => {
         if (el.id) cfg[el.id] = el.value;
       });
-      await fetch('/api/config', {
+      const resp = await fetch('/api/config', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(cfg)
       });
+      let data = null;
+      try { data = await resp.json(); } catch (e) { /* 非 JSON 响应 */ }
+      if (!resp.ok || !data || !data.ok) {
+        alert('保存失败: HTTP ' + resp.status + ' ' + ((data && data.error) || resp.statusText));
+        return;
+      }
       alert('配置已保存');
       if (refreshTasks) loadTasks();
     }
