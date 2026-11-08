@@ -1,6 +1,6 @@
 # cidaren-ultimate
 
-**词汇学习自动化框架（v2.8.0）**：融合 5 个开源项目的工程实践，多源答案融合 + 自学习题库 + Mock Server E2E 测试。纯 Python，Web 控制台 + CLI 双入口，Termux 可直接运行。
+**词汇学习自动化框架（v2.8.1）**：融合 5 个开源项目的工程实践，多源答案融合 + 自学习题库 + Mock Server E2E 测试。纯 Python，Web 控制台 + CLI 双入口，Termux 可直接运行。
 
 > 本项目为个人学习与工程研究用途，探索多源信息融合、自学习缓存、无凭证集成测试等技术模式。
 
@@ -25,7 +25,7 @@
 │   └── templates/index.html  # 前端页面（现代美观风格，配置分 Tab）
 ├── data/                # 内置词表 + 本地答案库（自动累积）
 ├── mock_server.py      # 本地模拟服务端（无账号也能跑 E2E 测试，首判计分对齐真实服务端）
-└── tests/               # 29 项测试（核心逻辑 + mock E2E + 空白试探路径测试）
+└── tests/               # 43 项测试（核心逻辑 + mock E2E + 冷启动诚实性 + 数据路径回归）
 ```
 
 ## 快速开始
@@ -70,7 +70,7 @@ python main.py            # 打开 http://localhost:5000
 
 ### Mock Server E2E 测试
 
-最有价值的工程实践：用 Flask 实现完整的模拟服务端，固定题库覆盖所有题型，判分逻辑与真实服务端一致。测试时把 API 指向 mock，**无需真实账号即可跑完整流程**。
+用 Flask 实现模拟服务端，固定题库覆盖所有题型，按首判计分。它只用于回归测试，**不校验 sign、不替代真实服务端验证**：E2E 里预灌题库的用例测的是缓存链路，冷启动分数见 `tests/test_regressions.py`。
 
 ```bash
 python -m pytest tests/ -v
@@ -99,6 +99,8 @@ python -m pytest tests/ -v
 | `QUESTION_TIMEOUT` | 单题超时（秒） | 60 |
 | `DELAY_PER_QUESTION` | 每题间隔（秒） | 2 |
 | `LLM_URL` / `LLM_KEY` / `LLM_MODEL` | OpenAI 兼容 LLM 配置 | 空 |
+| `SIGNIN_ENABLED` | 自动签到：1=开启 | 0 |
+| `QUESTION_TIMEOUT` | 单题超时（秒） | 60 |
 
 ## CLI 用法
 
@@ -140,6 +142,13 @@ python main.py
 | v2.7.2 | 答题速度统计 + 自动跳过满分任务 + 答题间隔随机化 |
 | v2.7.3 | 修复 31 搭配题无解崩溃 + 题库来源声明（THIRD_PARTY_NOTICES） |
 | v2.8.0 | Mock Server 全面升级：首判计分对齐真实服务端 + 全 19 种题型覆盖 + 单题异常兜底 + 空白试探路径测试（29 项测试全绿） |
+| v2.8.1 | 修复内置题库未加载（数据目录指错）+ legacy 3/4 段键失配；报告 fix 不再计为答对；报告 key 路径穿越、配置丢字段、POST 重试双提交、任务名 XSS；补冷启动/回归测试（43 项） |
+
+## 已知限制
+
+- `jv=99` 响应需要 `config/crypto.json`（共享密钥）。仓库不提供，扫码登录只返回 `USERTOKEN`；没有该文件时遇到 `jv=99` 会抛明确异常。
+- `python -m cidaren` 不可用（项目根不是 `cidaren` 包），统一用 `python main.py`。
+- 内置 `data/bank_legacy.json` 是多来源合并格式（3/4/5 段键），解析逻辑已兼容，但仍有部分上游格式无法一一对应。
 
 ## 免责声明
 

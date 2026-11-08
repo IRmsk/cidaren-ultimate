@@ -20,7 +20,7 @@ from core import bank as bk
 from core import ocr as ocr_mod
 from solver import report as rp
 from core.ai import llm_answer
-from core.config import as_bool, as_int, get_runtime_config
+from core.config import as_bool, get_runtime_config
 
 _WORD_PAT = re.compile(r'\{(\w+)\}')
 
@@ -298,9 +298,6 @@ def _global_word_pool(ctx) -> list | None:
 def rule_answer(ctx, topic: dict):
     """按题型规则匹配答案；答不上返回 None（交给 AI/空白试探）。"""
     mode = topic.get("topic_mode")
-    stem_obj = topic.get("stem") or {}
-    stem = stem_obj.get("content", "")
-    remark = stem_obj.get("remark", "") or ""
 
     if mode == 11 or mode in (15, 16, 21, 22):
         # 英译汉：题干 {word} 或直接单词 -> 查词 -> 比对选项释义
@@ -587,6 +584,8 @@ class TopicContext:
         self.word_dict = {}           # word_zh -> word（跨单元累积，mode 73 全局池）
         self.word_defs = {}           # word -> [释义]（学习卡片 + 查词缓存）
         self.stats = {"ok": 0, "fail": 0, "wrong": 0, "skip": 0, "cache": 0, "rule": 0, "ai": 0, "blank": 0}
+        # 题目代次：runner 单题超时后 +1，旧线程据此放弃后续提交，避免双提交
+        self.current_epoch = 0
 
     @property
     def is_study(self) -> bool:
@@ -594,6 +593,11 @@ class TopicContext:
 
     def delay(self, lo=1.5, hi=3.5):
         time.sleep(random.uniform(lo, hi))
+
+
+def _stale(ctx, epoch) -> bool:
+    """当前题是否已被 runner 判定超时作废。"""
+    return epoch is not None and getattr(ctx, "current_epoch", epoch) != epoch
 
 
 def _verify(ctx, topic_code, answer):
@@ -691,11 +695,13 @@ def _norm_corrects_answer(corrects, mode, stem) -> str:
     return final_ans
 
 
-def _blank_probe(ctx, topic, key, stem, code, mode, logf):
+def _blank_probe(ctx, topic, key, stem, code, mode, logf, epoch=None):
     """
     空白试探（Cidaren-AI 思路）：题库/AI/规则都答不上时，提交空答案让服务端返回标准答案。
     不盲猜——拿不到标准答案就跳过，宁缺毋滥。
     """
+    if _stale(ctx, epoch):
+        return None
     blank = "" if mode != 73 else json.dumps([""] * max(stem.count("{"), 1))
     resp0 = _verify(ctx, code, blank)
     d0 = resp0.get("data") or {}
@@ -736,6 +742,8 @@ def solve_topic(ctx: TopicContext, topic: dict, log=lambda s: None):
     处理一道题。返回下一题响应 dict（含 topic_code / topic_done_num）或 None（任务结束）。
     """
     ctx._t_start = time.time()
+    ctx.current_epoch = getattr(ctx, "current_epoch", 0) + 1
+    epoch = ctx.current_epoch
     mode = topic.get("topic_mode")
     stem_obj = topic.get("stem") or {}
     stem = stem_obj.get("content", "?")
@@ -743,7 +751,6 @@ def solve_topic(ctx: TopicContext, topic: dict, log=lambda s: None):
     key = _topic_key(topic)
     opts = _opts(topic)
     ai_priority = as_bool(ctx.config.get("AI_PRIORITY"), True)
-    min_t = as_int(ctx.config.get("DELAY_PER_QUESTION"), 2) or 2
 
     def logf(tag, text, extra=""):
         log(f"  [{mode:>2}] {tag} {str(text)[:42]}{extra}")
@@ -770,7 +777,7 @@ def solve_topic(ctx: TopicContext, topic: dict, log=lambda s: None):
 
     # ---------- 搭配题 mode 31（多选，循环 verify） ----------
     if _is_collocation(topic):
-        return _solve_collocation(ctx, topic, log, logf)
+        return _solve_collocation(ctx, topic, log, logf, epoch=epoch)
 
     # ---------- 常规题 ----------
     code = topic["topic_code"]
@@ -814,7 +821,7 @@ def solve_topic(ctx: TopicContext, topic: dict, log=lambda s: None):
 
     if answer is not None:
         logf("?", "答题", f" [{src}]")
-        resp, need_probe = _commit_answer(ctx, topic, key, stem, remark, code, answer, src, mode, logf)
+        resp, need_probe = _commit_answer(ctx, topic, key, stem, remark, code, answer, src, mode, logf, epoch=epoch)
         if resp is not None:
             return resp
         if need_probe:
@@ -823,22 +830,24 @@ def solve_topic(ctx: TopicContext, topic: dict, log=lambda s: None):
             answer2 = llm_answer(topic, ctx.word_defs, ctx.word_list, ctx.config)
             if answer2 is not None and str(answer2) != str(answer):
                 logf("?", "AI 二次组合", " [ai]")
-                resp2, need2 = _commit_answer(ctx, topic, key, stem, remark, code, answer2, "ai", mode, logf)
+                resp2, need2 = _commit_answer(ctx, topic, key, stem, remark, code, answer2, "ai", mode, logf, epoch=epoch)
                 if resp2 is not None:
                     return resp2
             _report(ctx, mode, src + "!wrong", 0, stem, remark, answer)
             logf("?", "仍无解，转空白试探", " [probe]")
-            return _blank_probe(ctx, topic, key, stem, code, mode, logf)
+            return _blank_probe(ctx, topic, key, stem, code, mode, logf, epoch=epoch)
         return resp
 
     logf("?", "题库/AI/规则均无解，转空白试探", " [probe]")
-    return _blank_probe(ctx, topic, key, stem, code, mode, logf)
+    return _blank_probe(ctx, topic, key, stem, code, mode, logf, epoch=epoch)
 
 
-def _commit_answer(ctx, topic, key, stem, remark, code, answer, src, mode, logf):
+def _commit_answer(ctx, topic, key, stem, remark, code, answer, src, mode, logf, epoch=None):
     """验证并提交答案：OK 记分入库 / FIX 用服务端纠错答案补交。
     返回 (resp, need_probe)：resp=下一题响应或 None；need_probe=True 表示判错且无纠错。
     """
+    if _stale(ctx, epoch):
+        return None, False
     code, ar, corrects, over = _verify_and_learn(ctx, topic, code, answer, mode, logf)
     if ar == 1:
         ctx.stats["ok"] += 1
@@ -851,15 +860,16 @@ def _commit_answer(ctx, topic, key, stem, remark, code, answer, src, mode, logf)
     if corrects:
         final_ans = _norm_corrects_answer(corrects, mode, stem)
         bk.bank_add(key, final_ans, stem)
-        _report(ctx, mode, "fix", 1, stem, remark, final_ans)
+        # fix 只代表"用服务端纠错答案补交成功"，服务端首判已记错、不加分；
+        # 报告里必须如实记 0，否则本地 ok 会系统性高于真实分数。
+        _report(ctx, mode, "fix", 0, stem, remark, final_ans)
         logf("FIX", _disp_answer(topic, final_ans, mode), " [corrects]")
         return _submit_next(ctx, code, random.randint(8000, 12000)), False
     return None, True
 
 
-def _solve_collocation(ctx, topic, log, logf):
+def _solve_collocation(ctx, topic, log, logf, epoch=None):
     """搭配题：候选 tag 列表逐个 verify，直到 over_status=1（LangQi99 思路）。"""
-    opts = _opts(topic)
     answer_num = topic.get("answer_num") or 2
     key = _topic_key(topic)
     tags, src = None, None
@@ -883,6 +893,8 @@ def _solve_collocation(ctx, topic, log, logf):
     for ans_tag in (tags or [])[:answer_num]:
         if ans_tag in chosen:
             continue
+        if _stale(ctx, epoch):
+            return None
         vr = _verify(ctx, cur_code, ans_tag)
         vd = vr.get("data") or {}
         cur_code = vd.get("topic_code", cur_code)

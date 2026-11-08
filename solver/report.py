@@ -14,6 +14,8 @@ from pathlib import Path
 REPORTS_DIR = Path(__file__).resolve().parent / "data" / "reports"
 
 REPORT_FIELDS = ("mode", "src", "ok", "stem", "remark", "answer")
+_NAME_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-")
+_KEY_CHARS = _NAME_CHARS
 
 
 def task_key(source, task_id, release_id) -> str:
@@ -21,7 +23,14 @@ def task_key(source, task_id, release_id) -> str:
 
 
 def _path(key: str) -> Path:
-    return REPORTS_DIR / f"{key}.jsonl"
+    """报告文件路径。key 只允许字母/数字/下划线/点/短横，且必须落在 REPORTS_DIR 内。"""
+    if not key or any(ch not in _KEY_CHARS for ch in key) or ".." in key:
+        raise ValueError("非法报告 key")
+    root = REPORTS_DIR.resolve()
+    path = (REPORTS_DIR / f"{key}.jsonl").resolve()
+    if not path.is_relative_to(root):
+        raise ValueError("报告 key 越界")
+    return path
 
 
 def report_add(key: str, mode, src, ok, stem="", remark="", answer="", duration=None):

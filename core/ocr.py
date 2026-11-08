@@ -9,8 +9,6 @@ ocr.py — 图片题干/选项读图兜底（整合 xuhaoranbb-boop/vocabgo-auto
 """
 from __future__ import annotations
 
-import json
-import time
 
 import requests
 

@@ -15,7 +15,13 @@ data/bank.json
 data/*.lock
 data/*.tmp
 data/reports/
+core/data/
+solver/data/
 *.bak
+
+# jv=99 加密上下文（共享密钥，禁止入库）
+crypto.json
+config/crypto.json
 
 # 工具/系统
 .DS_Store

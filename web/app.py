@@ -18,7 +18,7 @@ web.py — Web 控制台（基于 LangQi99/cidaren 增强，含 chuyc11/xuhaoran
 """
 from __future__ import annotations
 
-import base64
+import hmac
 import os
 import subprocess
 import sys
@@ -71,10 +71,13 @@ _WEB_AUTH_ENABLED = False
 @app.before_request
 def _check_web_auth():
     """非本地绑定时所有请求需带密码（query 参数 ?token= 或 Header X-Cidaren-Token）。"""
+    # 只接受 JSON 或空 body 的 POST：挡掉跨站 text/plain 简单请求（CSRF）
+    if request.method == "POST" and request.get_data(cache=True) and not request.is_json:
+        return Response("Unsupported Media Type: 请使用 application/json\n", status=415)
     if not _WEB_AUTH_ENABLED:
         return None
     token = request.args.get("token") or request.headers.get("X-Cidaren-Token", "")
-    if token != _WEB_PASSWORD:
+    if not hmac.compare_digest(str(token), str(_WEB_PASSWORD)):
         return Response("Unauthorized: 请在地址后加 ?token=你的面板密码\n", status=401)
     return None
 
@@ -148,7 +151,9 @@ def _task_window(raw):
     over = raw.get("over_time") or 0
     if start and start > now_ms:
         return False, "未开始"
-    if start and over and start + over <= now_ms:
+    # over_time 在不同环境里既可能是"时长"，也可能是绝对截止时间戳
+    deadline = over if over > 10 ** 12 else (start + over if start and over else 0)
+    if deadline and deadline <= now_ms:
         return False, "已截止"
     return True, "可作答"
 
@@ -378,7 +383,7 @@ def api_token_check():
     cfg = get_runtime_config()
     missing = get_missing_auth_fields(cfg)
     if missing:
-        return jsonify({"ok": False, "error": f"缺少 USERTOKEN"}), 400
+        return jsonify({"ok": False, "error": "缺少 USERTOKEN"}), 400
     ok, info = is_token_valid(cfg["USERTOKEN"], cfg.get("ABC", ""), cfg.get("AUTH_V", ""))
     hint = token_expiry_hint()
     if ok:
@@ -552,8 +557,14 @@ def api_report_detail():
     key = request.args.get("key", "")
     if not key:
         return jsonify({"ok": False, "error": "缺少 key"}), 400
-    stats = rp.report_stats(key)
-    recs = rp.report_load(key)[-200:]
+    # key 直接参与文件名拼接：只允许安全字符，杜绝 ../ 路径穿越
+    if len(key) > 120 or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-" for ch in key) or ".." in key:
+        return jsonify({"ok": False, "error": "非法 key"}), 400
+    try:
+        stats = rp.report_stats(key)
+        recs = rp.report_load(key)[-200:]
+    except ValueError:
+        return jsonify({"ok": False, "error": "非法 key"}), 400
     return jsonify({"ok": True, "stats": stats, "recs": recs})
 
 
@@ -591,8 +602,8 @@ def main():
             print(f"[安全] 未设置 CIDAREN_PASSWORD，已自动生成随机面板密码: {_WEB_PASSWORD}")
             print(f"[安全] 访问方式: http://{host}:{port}/?token={_WEB_PASSWORD}")
         else:
-            print(f"[安全] 面板密码已从 CIDAREN_PASSWORD 读取")
-        print(f"[安全] 如需关闭密码验证，请绑定 127.0.0.1 并通过 SSH 端口转发访问")
+            print("[安全] 面板密码已从 CIDAREN_PASSWORD 读取")
+        print("[安全] 如需关闭密码验证，请绑定 127.0.0.1 并通过 SSH 端口转发访问")
 
     print(f"cidaren-ultimate Web 控制台: http://{host}:{port}")
     print(f"配置文件: {env_file_path()}")

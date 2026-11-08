@@ -9,11 +9,10 @@ from __future__ import annotations
 import os
 import random
 import time
-import urllib.parse
 
 import requests
 
-from core.crypto import SALT, decrypt_response, md5, sign
+from core.crypto import decrypt_response, sign
 
 VERSION = "2.7.0.260507_01"
 # 支持 CIDAREN_API_BASE / CIDAREN_STUDENT_API 环境变量覆盖（mock server 测试用）
@@ -81,22 +80,17 @@ class Client:
                     continue
         raise ApiError(f"GET {path} 网络失败: {last}")
 
-    def _post(self, path: str, body: dict, base: str = None, retries: int = 2):
+    def _post(self, path: str, body: dict, base: str = None, retries: int = 1):
+        """POST 不自动重试：Verify/Submit 非幂等，超时重试会重复提交答案。"""
         base = base or BASE  # 运行时取值，支持 mock 测试注入
         body = {**body, "timestamp": _ms(), "version": VERSION}
         body["sign"] = sign(body)
         body["app_type"] = 1
-        last = None
-        for attempt in range(retries):
-            try:
-                resp = self.s.post(base + path, json=body, timeout=self.timeout)
-                return self._handle(resp)
-            except (requests.Timeout, requests.ConnectionError) as e:
-                last = e
-                if attempt < retries - 1:
-                    time.sleep(1.5 * (attempt + 1))
-                    continue
-        raise ApiError(f"POST {path} 网络失败: {last}")
+        try:
+            resp = self.s.post(base + path, json=body, timeout=self.timeout)
+            return self._handle(resp)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            raise ApiError(f"POST {path} 网络失败: {e}")
 
     def _handle(self, resp: requests.Response) -> dict:
         try:

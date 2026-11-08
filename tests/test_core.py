@@ -223,7 +223,7 @@ class TestLLMConnectivity(unittest.TestCase):
             @property
             def text(self):
                 return "ok"
-        with mock.patch("core.ai.requests.post", return_value=FakeResp()) as m:
+        with mock.patch("core.ai.requests.post", return_value=FakeResp()):
             r = check_llm_connectivity("https://api.deepseek.com", "sk-test", "deepseek-chat")
         self.assertTrue(r["ok"])
         self.assertEqual(r["reply"], "正常")

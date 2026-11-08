@@ -172,6 +172,8 @@ def run_one_round(ctx: TopicContext, task_id, release_id, log=print):
             next_resp = future.result(timeout=question_timeout)
         except _FutTimeout:
             log(f"  [题 {qnum}] 超时 {question_timeout}s 无响应，强制跳过该题")
+            # 作废旧线程的提交权：它可能还在跑，若继续提交会与下面的跳过提交重复
+            ctx.current_epoch = getattr(ctx, "current_epoch", 0) + 1
             _refresh_executor()  # 丢弃卡死的线程，换新线程继续
             try:
                 if ctx.is_study:
@@ -257,7 +259,7 @@ def run_full(client, task_id, release_id, config=None, log=print, task_type=1):
         score = _score(client, "class", task_id, release_id)
         log(f"  [分数] {score if score is not None else '?'}")
         if score is not None and score >= 100:
-            log(f"  [满分] 任务完成")
+            log("  [满分] 任务完成")
             return
         if score is None:
             return
@@ -317,7 +319,7 @@ def run_study_full(client, task_id, course_id, list_id, task_type=3, grade=2, co
         score = _score(client, "study", task_id, list_id, course_id, list_id)
         log(f"  [分数] {score if score is not None else '?'}")
         if score is not None and score >= 100:
-            log(f"  [满分] 任务完成")
+            log("  [满分] 任务完成")
             return
         if score is None:
             return

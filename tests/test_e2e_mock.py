@@ -93,7 +93,6 @@ class TestE2EMock(unittest.TestCase):
     def test_blank_probe_path(self):
         """故意让题库漏掉几道题，测一下空白试探（probe）路径能不能走通。"""
         # 先清空所有题库，模拟冷启动
-        import json
         bank.BANK_FILE.write_text("{}")
         bank.BANK_LEGACY_FILE.write_text("{}")
         

@@ -663,8 +663,8 @@
       list.innerHTML = tasks.map((t, i) => `
         <div class="task-item">
           <div class="task-header">
-            <div class="task-title">${i}. [${t.source_label || '任务'}] ${t.task_name || t.name || '未知任务'}</div>
-            <div class="task-status">${t.running ? '运行中' : (t.done ? '已完成' : (t.state_label || '可作答'))}</div>
+            <div class="task-title">${i}. [${escapeHtml(t.source_label || '任务')}] ${escapeHtml(t.task_name || t.name || '未知任务')}</div>
+            <div class="task-status">${t.running ? '运行中' : (t.done ? '已完成' : escapeHtml(t.state_label || '可作答'))}</div>
           </div>
           <div class="progress-bar">
             <div class="progress-fill" style="width: ${t.progress || 0}%"></div>
@@ -691,7 +691,7 @@
     function taskActions(t) {
       const args = _taskArgs(t);
       if (t.can_start === false) {
-        return `<span style="font-size:12px;color:#c62828">${t.state_label || '不可作答'}，暂不能作答</span>`;
+        return `<span style="font-size:12px;color:#c62828">${escapeHtml(t.state_label || '不可作答')}，暂不能作答</span>`;
       }
       const src = JSON.stringify(t.source);
       const tid = JSON.stringify(String(t.task_id));

@@ -188,7 +188,18 @@ def save_runtime_config(payload: dict) -> dict:
         f"BAIDU_OCR_AK={_format_env_value(merged.get('BAIDU_OCR_AK', ''))}",
         f"BAIDU_OCR_SK={_format_env_value(merged.get('BAIDU_OCR_SK', ''))}",
         "",
+        "# 自动签到: 0=关闭(默认); 1=开启",
+        f"SIGNIN_ENABLED={_format_env_value(merged.get('SIGNIN_ENABLED', '0'))}",
+        "",
+        "# token 保存时间(时间戳，自动写入)",
+        f"TOKEN_SAVED_AT={_format_env_value(merged.get('TOKEN_SAVED_AT', ''))}",
+        "",
     ])
+    # 保留未知键：用户手写在 .env 里的自定义项不应被面板保存抹掉
+    known = set(CONFIG_FIELDS)
+    for key, value in current.items():
+        if key not in known:
+            lines.append(f"{key}={_format_env_value(value)}")
     ENV_FILE.write_text("\n".join(lines), encoding="utf-8")
     # 配置文件含 USERTOKEN 等敏感凭据，限制为仅所有者可读写
     try:

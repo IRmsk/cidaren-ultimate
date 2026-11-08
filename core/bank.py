@@ -15,7 +15,8 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 
-DATA_DIR = Path(__file__).resolve().parent / "data"
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "data"
 BANK_FILE = DATA_DIR / "bank.json"
 ANSWER_LIB_FILE = DATA_DIR / "answer_lib.json"
 WORD_POOL_FILE = DATA_DIR / "word_pool.json"
@@ -108,12 +109,36 @@ def bank_add(key: str, ans, stem: str = ""):
         bank_save(bank)
 
 
-def legacy_key_of(key: str) -> str | None:
-    """把新格式 key (mode::kind::sn::remark::opts) 转成旧格式 (mode::sn::remark) 用于查历史题库。"""
+def legacy_key_candidates(key: str) -> list:
+    """把新格式 key 转成可能的历史题库键。
+
+    legacy 库是多个上游合并的，第三段含义并不统一：
+      - 3 段：mode::stem::remark（32/51/73 等）或 mode::stem::opts（11/22/41 等）
+      - 4 段：mode::stem::remark::opts
+      - 5 段：与新格式同构
+    因此这里同时产出 remark / opts 两种候选，逐条尝试，避免只赌一种格式。
+    """
     parts = key.split("::")
     if len(parts) == 5:
-        return f"{parts[0]}::{parts[2]}::{parts[3]}"
-    return None
+        mode, stem, remark, opts = parts[0], parts[2], parts[3], parts[4]
+    elif len(parts) == 4:
+        mode, stem, remark, opts = parts[0], parts[1], parts[2], parts[3]
+    elif len(parts) == 3:
+        mode, stem, remark, opts = parts[0], parts[1], parts[2], ""
+    else:
+        return []
+    out = [f"{mode}::{stem}::{remark}"]
+    if opts:
+        out.append(f"{mode}::{stem}::{opts}")
+        # 4 段 legacy 格式：mode::stem::remark::opts
+        out.append(f"{mode}::{stem}::{remark}::{opts}")
+    return out
+
+
+def legacy_key_of(key: str) -> str | None:
+    """兼容旧调用：返回第一个候选键。"""
+    cands = legacy_key_candidates(key)
+    return cands[0] if cands else None
 
 
 def _remark_of(key: str) -> str | None:
@@ -134,9 +159,9 @@ def bank_lookup(key: str, bank: dict):
     """
     if key in bank:
         return bank[key]["ans"]
-    legacy = legacy_key_of(key)
-    if legacy and legacy in bank:
-        return bank[legacy]["ans"]
+    for legacy in legacy_key_candidates(key):
+        if legacy in bank:
+            return bank[legacy]["ans"]
     parts = key.split("::")
     mode = parts[0] if parts else ""
     rem = _remark_of(key)

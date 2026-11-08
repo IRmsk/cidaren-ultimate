@@ -93,7 +93,7 @@ def parse_llm_answer(ans_text: str, mode: int) -> int | str | list | None:
     ans_text = re.sub(r'^[A-D][.、)\s]+', '', ans_text)
     ans_text = ans_text.strip('"\'`*')
     if "\n" in ans_text:
-        lines = [l.strip() for l in ans_text.split("\n") if l.strip()]
+        lines = [line.strip() for line in ans_text.split("\n") if line.strip()]
         ans_text = lines[-1]
 
     if mode == 73:

@@ -8,13 +8,12 @@ login.py — 微信扫码登录（移植 Rain-shadow/cdr 的授权流程，可�
 from __future__ import annotations
 
 import base64
-import hashlib
 import random
 import time
 
 import requests
 
-from core.api import Client, token_valid
+from core.api import token_valid
 from core.crypto import md5
 
 GATEWAY = "https://gateway.vocabgo.com"

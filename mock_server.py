@@ -248,7 +248,6 @@ def submit_and_save():
     code = body.get("topic_code", "")
     tid = int(code.split("-")[1])
     st = _state(tid, 1)
-    seq = int(code.split("-")[2])
     with LOCK:
         st["done"] = min(st["done"] + 1, len(st["questions"]))
         if st["done"] >= len(st["questions"]):

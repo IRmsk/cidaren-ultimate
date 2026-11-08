@@ -77,7 +77,7 @@ def main():
             if len(recs) < 50:
                 break
             page += 1
-        todo = [t for t in tasks if t.get("score", 0) < 100 and not _is_task_expired(t)]
+        todo = [t for t in tasks if (t.get("score") or 0) < 100 and not _is_task_expired(t)]
         if not todo:
             log("没有未完成的任务，全部已满分或已截止。")
             return
