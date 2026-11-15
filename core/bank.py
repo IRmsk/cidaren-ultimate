@@ -16,7 +16,9 @@ from contextlib import contextmanager
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
+# 数据目录可用 CIDAREN_DATA_DIR 覆盖：Android /sdcard（FUSE）不支持 flock，
+# 把数据放到 ext4 路径可保留跨进程文件锁语义。
+DATA_DIR = Path(os.environ.get("CIDAREN_DATA_DIR") or (BASE_DIR / "data"))
 BANK_FILE = DATA_DIR / "bank.json"
 ANSWER_LIB_FILE = DATA_DIR / "answer_lib.json"
 WORD_POOL_FILE = DATA_DIR / "word_pool.json"
@@ -27,6 +29,8 @@ DICT_ZH_FILE = DATA_DIR / "dict_zh.json"
 WORD_KEY = "_word_answers"
 
 _lock = threading.Lock()
+# flock 不可用时的进程内兜底锁（单进程内仍保证不并发写）
+_fallback_lock = threading.Lock()
 _dict_zh_cache: dict | None = None
 
 
@@ -36,6 +40,7 @@ def _ensure_dir():
 
 @contextmanager
 def _file_lock(lock_path):
+    """跨进程文件锁；文件系统不支持 flock（Android /sdcard FUSE 返回 ENOSYS）时降级为进程内锁。"""
     with open(lock_path, "a+b") as lf:
         if os.name == "nt":
             import msvcrt
@@ -46,13 +51,27 @@ def _file_lock(lock_path):
             finally:
                 lf.seek(0)
                 msvcrt.locking(lf.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
+            return
+        import errno
+        import fcntl
+        try:
             fcntl.flock(lf, fcntl.LOCK_EX)
-            try:
+        except OSError as e:
+            unsupported = (
+                errno.ENOSYS,
+                getattr(errno, "ENOTSUP", errno.ENOSYS),
+                getattr(errno, "EOPNOTSUPP", errno.ENOSYS),
+                errno.EINVAL,
+            )
+            if e.errno not in unsupported:
+                raise
+            with _fallback_lock:
                 yield
-            finally:
-                fcntl.flock(lf, fcntl.LOCK_UN)
+            return
+        try:
+            yield
+        finally:
+            fcntl.flock(lf, fcntl.LOCK_UN)
 
 
 def _atomic_write(path: Path, obj: dict):
