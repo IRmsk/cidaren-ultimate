@@ -235,6 +235,14 @@ def as_int(value, default: int) -> int:
         return default
 
 
+def as_float(value, default: float) -> float:
+    """解析浮点配置（DELAY_PER_QUESTION 允许 0.6 这类小数）。"""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def as_bool(value, default: bool = True) -> bool:
     if value is None:
         return default

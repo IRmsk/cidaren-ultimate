@@ -15,7 +15,7 @@ from concurrent.futures import TimeoutError as _FutTimeout
 
 from core import bank as bk
 from core.api import ApiError, SecurityVerifyError
-from core.config import as_int, get_runtime_config
+from core.config import as_int, get_runtime_config, as_float
 from solver.solver import TopicContext, setup_from_word_list, solve_topic
 
 MAX_PAGE = 20
@@ -213,7 +213,7 @@ def run_one_round(ctx: TopicContext, task_id, release_id, log=print):
             break
         topic = nt
         # 节奏控制（Cidaren-AI 思路，DELAY_PER_QUESTION=0 时测试提速）
-        gap = max(0.0, as_int(ctx.config.get("DELAY_PER_QUESTION"), 2))
+        gap = max(0.0, as_float(ctx.config.get("DELAY_PER_QUESTION"), 2.0))
         if gap <= 0:
             time.sleep(random.uniform(0.02, 0.15))
         elif topic.get("topic_mode") == 0:

@@ -140,7 +140,10 @@ def llm_answer(topic: dict, word_defs: dict = None, task_words: list = None, con
         "model": llm_model,
         "messages": [
             {"role": "system",
-             "content": f"[{uuid.uuid4()}] 你是英语词汇专家。请精准回答，只输出答案，不要解释。"},
+             # 用英文 system：部分中转网关的内容审查会把中文 system 消息判为违规直接 400，
+             # 英文表述实测稳定，且对答题效果无影响。
+             "content": f"[{uuid.uuid4()}] You are an English vocabulary expert. "
+                        "Answer precisely with the answer only, no explanation."},
             {"role": "user", "content": prompt},
         ],
         "max_tokens": max_tokens,
