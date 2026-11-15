@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 from contextlib import contextmanager
 from pathlib import Path
@@ -31,6 +32,7 @@ WORD_KEY = "_word_answers"
 _lock = threading.Lock()
 # flock 不可用时的进程内兜底锁（单进程内仍保证不并发写）
 _fallback_lock = threading.Lock()
+_flock_warned = False
 _dict_zh_cache: dict | None = None
 
 
@@ -65,6 +67,14 @@ def _file_lock(lock_path):
             )
             if e.errno not in unsupported:
                 raise
+            global _flock_warned
+            if not _flock_warned:
+                _flock_warned = True
+                print(
+                    f"[bank] {lock_path} 所在文件系统不支持 flock（errno={e.errno}），"
+                    "已降级为进程内锁；跨进程互斥减弱，建议用 CIDAREN_DATA_DIR 指到 ext4 等路径",
+                    file=sys.stderr,
+                )
             with _fallback_lock:
                 yield
             return

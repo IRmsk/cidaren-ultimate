@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """轮询任务直到结束，打印最终分数（本地部署监控用）"""
-import json, sys, time, urllib.request
+import json, os, sys, time, urllib.request
 
-BASE = "http://127.0.0.1:5000"
-TOK = "cidaren2026"
+BASE = os.environ.get("CIDAREN_WEB_URL", "http://127.0.0.1:5000")
+TOK = os.environ.get("CIDAREN_PASSWORD", "")
 TID, RID = int(sys.argv[1]), int(sys.argv[2])
 
 def get(path):
