@@ -121,6 +121,44 @@ pip install flask requests qrcode
 python main.py
 ```
 
+### Android / 容器部署（flock 与数据目录）
+
+Android 的 `/sdcard` 是 FUSE 文件系统，不支持 `flock`。项目直接放在那里运行时，每道题写答案库都会抛
+`OSError: [Errno 38] Function not implemented`，被 runner 当作单题异常逐题跳过（表现为进度在走、分数不动）。
+两种处理，建议同时做：
+
+1. **数据目录指到支持 flock 的路径**（保住跨进程锁语义）：
+
+   ```bash
+   export CIDAREN_DATA_DIR=/root/cidaren-data   # ext4 / tmpfs 均可，不能是 /sdcard
+   ```
+
+2. **`bank.py` 的锁自动降级**：`flock` 返回 `ENOSYS / ENOTSUP / EOPNOTSUPP / EINVAL` 时退化为进程内
+   `threading.Lock`，不再中断答题。面板是用子进程跑任务的，降级后跨进程互斥强度下降，所以方案 1 仍然要做。
+
+一键启停（脚本会设好 `CIDAREN_HOST / PORT / PASSWORD / DATA_DIR`，带幂等判断）：
+
+```bash
+sh start.sh    # 后台常驻，日志写 logs/web.log
+sh stop.sh
+```
+
+面板绑定 `0.0.0.0`（局域网/手机访问）时强制密码，前端会把 `?token=` 自动附加到所有 `/api/` 请求，
+并把 token 从地址栏抹掉（存 sessionStorage），避免密码留在浏览历史与 Referer 里。
+
+运维脚本：
+
+| 脚本 | 用途 |
+|---|---|
+| `tools/qr_login.py` | 命令行生成微信授权链接并轮询，token 生效后写回 `.env`（无浏览器场景） |
+| `tools/watch_task.py` | 轮询单个任务直到结束，输出进度与最终分数 |
+
+常见排查：
+
+- `python3 web/app.py` 直接启动会 `ModuleNotFoundError: core`，统一用 `python3 main.py`（入口做了 `sys.path` 注入）。
+- `token_check` 返回 11003 时先分清两种情况：**空 usertoken 请求 `/Student/Main` 同样返回 11003**，
+  所以这个码本身不代表风控，多半是登录态无效——先重新扫码换 USERTOKEN，仍有问题再按风控处理。
+
 ## 版本历史
 
 | 版本 | 内容 |

@@ -27,3 +27,7 @@ config/crypto.json
 .DS_Store
 *.log
 repos/
+
+# 运行日志与本地备份
+logs/
+*.orig
