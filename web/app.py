@@ -76,6 +76,9 @@ def _check_web_auth():
         return Response("Unsupported Media Type: 请使用 application/json\n", status=415)
     if not _WEB_AUTH_ENABLED:
         return None
+    # 静态 icon 免鉴权，避免浏览器噪音 401
+    if request.path in ("/favicon.ico", "/apple-touch-icon.png"):
+        return Response(status=204)
     token = request.args.get("token") or request.headers.get("X-Cidaren-Token", "")
     if not hmac.compare_digest(str(token), str(_WEB_PASSWORD)):
         return Response("Unauthorized: 请在地址后加 ?token=你的面板密码\n", status=401)
@@ -390,8 +393,8 @@ def api_token_check():
         name = (info or {}).get("student_name") or (info or {}).get("nick_name") or "?"
         return jsonify({"ok": True, "name": name, "hint": hint})
     if isinstance(info, dict) and info.get("error") == "security_verify":
-        return jsonify({"ok": False, "error": "服务端要求安全验证（风控 11003），不是 token 失效",
-                        "hint": "请在手机 App/微信端重新登录并完成验证，再抓包更新 USERTOKEN / ABC / AUTH_V"})
+        return jsonify({"ok": False, "error": "服务端返回 11003：登录态无效（实测空 token 返回同一码）",
+                        "hint": "先点「微信扫码登录」重新授权拿新 USERTOKEN；若扫码后仍 11003，再在 App/微信端完成安全验证并抓包更新 USERTOKEN / ABC / AUTH_V"})
     return jsonify({"ok": False, "error": "Token 无效或已过期", "hint": hint})
 
 

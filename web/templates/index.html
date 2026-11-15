@@ -416,6 +416,38 @@
       }
     }
   </style>
+<script>
+/* 本地部署补丁：绑定非回环地址时，面板密码（?token=）需由前端自动带给 /api/ 请求。
+   实现要点：首次从地址栏取 token 存进 sessionStorage，随后把 token 从 URL 抹掉，
+   避免密码留在浏览历史与 Referer 里；之后刷新页面也能继续用。 */
+(function () {
+  var KEY = 'cidaren_web_token';
+  var fromUrl = new URLSearchParams(location.search).get('token');
+  if (fromUrl) {
+    try { sessionStorage.setItem(KEY, fromUrl); } catch (e) {}
+    var u = new URL(location.href);
+    u.searchParams.delete('token');
+    history.replaceState(null, '', u.pathname + (u.search || '') + u.hash);
+  }
+  var t = fromUrl || (function () {
+    try { return sessionStorage.getItem(KEY) || ''; } catch (e) { return ''; }
+  })();
+  if (!t) return;
+  var of = window.fetch;
+  window.fetch = function (input, init) {
+    var url = typeof input === 'string' ? input : (input && input.url) || '';
+    if (url.indexOf('/api/') === 0 || url.indexOf(location.origin + '/api/') === 0) {
+      url += (url.indexOf('?') === -1 ? '?' : '&') + 'token=' + encodeURIComponent(t);
+      init = init || {};
+      var h = new Headers(init.headers || {});
+      h.set('X-Cidaren-Token', t);
+      init.headers = h;
+      input = url;
+    }
+    return of.call(this, input, init);
+  };
+})();
+</script>
 </head>
 <body>
   <div class="container">
