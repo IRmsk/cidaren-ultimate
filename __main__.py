@@ -4,6 +4,7 @@ __main__.py — CLI 入口
   python -m cidaren                    # Web 控制台
   python -m cidaren class <task_id> <release_id>   # 刷单个班级任务
   python -m cidaren study <task_id> <list_id> <course_id> <task_type> <grade>
+  python -m cidaren login              # OAuth V2 登录并生成 crypto.json
   python -m cidaren check              # 校验 token
   python -m cidaren resume             # 断点恢复：刷完所有未满分班级任务
 """
@@ -30,6 +31,27 @@ def main():
     if not args:
         from web.app import main as web_main
         web_main()
+        return
+    if args[0] == "login":
+        from core.login import complete_login, login_start
+
+        session = login_start()
+        print(f"AUTH_URL: {session['authorization_url']}", flush=True)
+        print("微信授权完成后，粘贴地址栏里的完整 app.vocabgo.com 回调 URL。", flush=True)
+        callback_url = input("CALLBACK_URL> ").strip()
+        if not callback_url:
+            raise SystemExit("未提供回调 URL")
+        try:
+            result = complete_login(
+                callback_url,
+                session["state_digest"],
+                session["marker_digest"],
+            )
+        except Exception as exc:
+            raise SystemExit(f"OAuth V2 登录失败: {exc}") from exc
+        log(f"OAuth V2 登录成功: {result['name']} ({result['version']})")
+        log(f"USERTOKEN: {result['token']}")
+        log(f"CRYPTO_FILE: {result['crypto_file']}")
         return
     if args[0] == "check":
         from core.config import get_missing_auth_fields, get_runtime_config

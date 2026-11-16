@@ -7,6 +7,7 @@
 | 项目 | 参考内容 | 上游许可 |
 |---|---|---|
 | Easy_Cidaren | 查词接口、加解密方案设计思路 | GPL-3.0 |
+| MOPELotus/Easy_Cidaren_Backend | OAuth V2、ECDH 握手与 `jv=99` 协议实现 | GPL-3.0 |
 | LangQi99/cidaren | API 客户端结构、配置管理思路 | 未声明 |
 | Cidaren-AI | AI 答题 prompt 模板、答题节奏控制 | 未声明 |
 | vocabgo-auto | OCR 读图兜底、Mock Server 测试思路 | MIT |
@@ -15,7 +16,7 @@
 
 ## 说明
 
-本项目依据上述项目的公开接口行为与设计思路独立实现，代码均为独立编写。
+除 `core/oauth.py` 明确改编自 MOPELotus/Easy_Cidaren_Backend 的 OAuth V2 协议实现外，其余功能依据公开接口行为与设计思路独立实现。
 
 本地题库为运行过程中自动采集与自学习累积，越用越准。
 

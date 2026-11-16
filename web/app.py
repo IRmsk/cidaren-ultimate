@@ -52,12 +52,16 @@ JOBS_LOCK = threading.Lock()
 LOG_MAX = 800  # 每个任务最多保留的日志行数（环形缓冲，防内存膨胀）
 
 # ------------------------------------------------------------------
-# 扫码登录会话
-#   token:   后端生成的授权 user_token（未确认前不写入配置）
-#   started: 二维码生成时间戳，用于 10 分钟过期判断
+# 微信 OAuth V2 登录会话
+#   state_digest / marker_digest: 绑定本次授权回调，防止拿别的 code 回填
+#   started: 授权链接生成时间戳，用于 10 分钟过期判断
 # ------------------------------------------------------------------
-QR_STATE = {"token": None, "started": 0.0}
-QR_LOCK = threading.Lock()
+AUTH_STATE = {
+    "state_digest": None,
+    "marker_digest": None,
+    "started": 0.0,
+}
+AUTH_LOCK = threading.Lock()
 
 # ------------------------------------------------------------------
 # Web 面板访问控制
@@ -309,7 +313,7 @@ def _spawn_job(source, task_id, release_id, loop=False, config=None, course_id=N
 #   页面    GET  /                → 控制台 HTML
 #   配置    GET/POST /api/config  → 读取/保存 .env
 #   任务    GET  /api/tasks       → 班级+自学任务列表（含运行状态）
-#   登录    POST /api/login_qr · GET /api/login_poll → 扫码登录
+#   登录    POST /api/login_start · POST /api/login_callback → OAuth V2 登录
 #   操作    POST /api/start · /api/start_all · /api/stop → 启动/断点恢复/停止
 #   日志    GET  /api/logs        → 实时日志轮询
 #   报告    GET  /api/reports · /api/report → 测试报告统计与明细
@@ -324,9 +328,13 @@ def index():
 @app.route("/api/config")
 def api_config():
     """读取当前 .env 配置 + 鉴权缺失字段 + 答案库统计，供表单回填。"""
+    from core.crypto import crypto_file_path
+
     config = get_runtime_config()
+    crypto_file = crypto_file_path()
     return jsonify({
         "ok": True, "config": config, "env_file": env_file_path(),
+        "crypto_file": str(crypto_file), "has_crypto": crypto_file.exists(),
         "missing_auth": get_missing_auth_fields(config),
         "stats": bk.lib_stats(),
     })
@@ -394,48 +402,73 @@ def api_token_check():
         return jsonify({"ok": True, "name": name, "hint": hint})
     if isinstance(info, dict) and info.get("error") == "security_verify":
         return jsonify({"ok": False, "error": "服务端返回 11003：登录态无效（实测空 token 返回同一码）",
-                        "hint": "先点「微信扫码登录」重新授权拿新 USERTOKEN；若扫码后仍 11003，再在 App/微信端完成安全验证并抓包更新 USERTOKEN / ABC / AUTH_V"})
+                        "hint": "先点「微信 OAuth V2 登录」重新授权；新版登录会同时生成 token 和 config/crypto.json"})
     return jsonify({"ok": False, "error": "Token 无效或已过期", "hint": hint})
 
 
+@app.route("/api/login_start", methods=["POST"])
 @app.route("/api/login_qr", methods=["POST"])
-def api_login_qr():
-    """生成扫码登录二维码。返回 user_token / base64 图片 / 授权链接。"""
-    from core.login import qr_authorize
+def api_login_start():
+    """Generate an OAuth V2 authorization URL and QR image."""
+    from core.login import login_start
+
     try:
-        with QR_LOCK:
-            session = qr_authorize()
-            QR_STATE["token"] = session["user_token"]
-            QR_STATE["started"] = time.time()
+        session = login_start()
+        with AUTH_LOCK:
+            AUTH_STATE["state_digest"] = session["state_digest"]
+            AUTH_STATE["marker_digest"] = session["marker_digest"]
+            AUTH_STATE["started"] = time.time()
         return jsonify({
             "ok": True,
-            "user_token": session["user_token"],
             "qr_base64": session.get("qr_base64"),
+            "authorization_url": session.get("authorization_url"),
             "redirect_url": session.get("redirect_url"),
+            "expires_at": session.get("expires_at"),
         })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/login_callback", methods=["POST"])
+def api_login_callback():
+    """Exchange the copied app.vocabgo.com callback for token + crypto.json."""
+    from core.login import complete_login
+
+    body = request.get_json(force=True) or {}
+    callback_url = str(body.get("callback_url") or "").strip()
+    if not callback_url:
+        return jsonify({"ok": False, "error": "请粘贴微信授权后的完整回调 URL"}), 400
+
+    with AUTH_LOCK:
+        state_digest = AUTH_STATE.get("state_digest")
+        marker_digest = AUTH_STATE.get("marker_digest")
+        started = AUTH_STATE.get("started", 0.0)
+        AUTH_STATE.update({"state_digest": None, "marker_digest": None, "started": 0.0})
+    if not state_digest or not marker_digest:
+        return jsonify({"ok": False, "error": "没有待完成的 OAuth 会话，请重新生成授权链接"}), 400
+    if time.time() - started > 600:
+        return jsonify({"ok": False, "error": "授权会话已过期，请重新生成授权链接"}), 400
+
+    try:
+        result = complete_login(callback_url, state_digest, marker_digest)
+        return jsonify({
+            "ok": True,
+            "name": result["name"],
+            "token": result["token"],
+            "crypto_file": result["crypto_file"],
+            "version": result["version"],
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
 @app.route("/api/login_poll")
 def api_login_poll():
-    """轮询扫码结果。成功后把 USERTOKEN 写进配置并返回学生姓名。"""
-    from core.login import is_token_valid
-    with QR_LOCK:
-        token = QR_STATE.get("token")
-        started = QR_STATE.get("started", 0)
-    if not token:
-        return jsonify({"ok": False, "error": "尚未生成二维码"})
-    if time.time() - started > 600:
-        return jsonify({"ok": False, "error": "二维码已过期，请重新生成"})
-    ok, info = is_token_valid(token)
-    if not ok:
-        return jsonify({"ok": False, "pending": True})
-    cfg = get_runtime_config()
-    cfg["USERTOKEN"] = token
-    save_runtime_config(cfg)
-    name = (info or {}).get("student_name") or (info or {}).get("nick_name") or "?"
-    return jsonify({"ok": True, "name": name})
+    """Obsolete endpoint kept only for a clear migration message."""
+    return jsonify({
+        "ok": False,
+        "error": "OAuth V2 需要回填授权后的回调 URL，请使用新版登录按钮",
+    }), 410
 
 
 @app.route("/api/start", methods=["POST"])

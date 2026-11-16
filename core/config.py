@@ -221,6 +221,9 @@ def build_subprocess_env(config=None) -> dict:
     env = os.environ.copy()
     for key in CONFIG_FIELDS:
         env[key] = cfg.get(key, DEFAULT_CONFIG.get(key, ""))
+    from core.crypto import crypto_file_path
+
+    env["CIDAREN_CRYPTO_FILE"] = str(crypto_file_path())
     return env
 
 

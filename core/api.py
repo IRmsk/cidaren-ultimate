@@ -12,20 +12,17 @@ import time
 
 import requests
 
-from core.crypto import decrypt_response, sign
+from core.crypto import decrypt_response, md5, sign
+from core.oauth import LOGIN_VERSION, OAUTH_USER_AGENT
 
-VERSION = "2.7.0.260507_01"
+VERSION = LOGIN_VERSION
 # 支持 CIDAREN_API_BASE / CIDAREN_STUDENT_API 环境变量覆盖（mock server 测试用）
 BASE = os.environ.get("CIDAREN_API_BASE", "https://app.vocabgo.com/studentv1/api")
-# easy_cidaren 的查词接口路径
+# 学习任务/查词仍走旧 student API；班级业务走 studentv1。
 STUDENT_API = os.environ.get("CIDAREN_STUDENT_API", "https://app.vocabgo.com/student/api/Student")
 
-DEFAULT_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 "
-    "NetType/WIFI MicroMessenger/7.0.20.1781(0x6700143B) "
-    "WindowsWechat(0x63090a13) UnifiedPCWindowsWechat(0xf254173b) XWEB/19027 Flue"
-)
+DEFAULT_UA = OAUTH_USER_AGENT
+DEFAULT_AUTH_V = md5("0")
 
 
 class SecurityVerifyError(Exception):
@@ -47,21 +44,22 @@ def _sleep(lo=1.0, hi=2.5):
 class Client:
     def __init__(self, usertoken: str, abc: str = "", auth_v: str = "", ua: str = "", timeout: int = 12):
         self.timeout = timeout
+        self.user_agent = (ua or DEFAULT_UA).strip() or DEFAULT_UA
+        self.abc = (abc or "").strip() or md5(self.user_agent)
+        self.auth_v = (auth_v or "").strip() or DEFAULT_AUTH_V
         self.s = requests.Session()
         headers = {
-            "host": "app.vocabgo.com",
-            "usertoken": usertoken,
-            "x-requested-with": "XMLHttpRequest",
-            "accept": "application/json, text/plain, */*",
-            "content-type": "application/json",
-            "origin": "https://app.vocabgo.com",
-            "referer": "https://app.vocabgo.com/student/",
-            "user-agent": ua or DEFAULT_UA,
+            "Host": "app.vocabgo.com",
+            "UserToken": usertoken,
+            "Abc": self.abc,
+            "Authorization-v": self.auth_v,
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json, text/plain, */*",
+            "Content-Type": "application/json",
+            "Origin": "https://app.vocabgo.com",
+            "Referer": "https://app.vocabgo.com/student/",
+            "User-Agent": self.user_agent,
         }
-        if abc:
-            headers["abc"] = abc
-        if auth_v:
-            headers["authorization-v"] = auth_v
         self.s.headers.update(headers)
 
     # ---- 基础请求 ----
@@ -141,45 +139,46 @@ class Client:
 
     # ---- 自学任务 ----
     def study_task_list(self, course_id="CET4_v2"):
-        return self._get("/Student/StudyTask/List", {"course_id": course_id})
+        return self._get("/Student/StudyTask/List", {"course_id": course_id}, base=STUDENT_API)
 
     def study_start_task(self, course_id, list_id, task_type=3, grade=2):
         return self._post("/Student/StudyTask/StartTask",
                           {"course_id": course_id, "list_id": list_id,
-                           "task_type": task_type, "grade": grade})
+                           "task_type": task_type, "grade": grade}, base=STUDENT_API)
 
     def study_task_info(self, task_id, course_id, list_id, task_type=3, grade=2):
         return self._get("/Student/StudyTask/Info",
                          {"task_id": task_id, "course_id": course_id, "list_id": list_id,
-                          "task_type": task_type, "grade": grade})
+                          "task_type": task_type, "grade": grade}, base=STUDENT_API)
 
     def study_chose_word_list(self, task_id, course_id, list_id, task_type=3, grade=2):
         return self._get("/Student/StudyTask/ChoseWordList",
                          {"task_id": task_id, "course_id": course_id, "list_id": list_id,
-                          "task_type": task_type, "grade": grade})
+                          "task_type": task_type, "grade": grade}, base=STUDENT_API)
 
     def study_submit_chose_word(self, task_id, course_id, list_id, word_map, task_type=3, grade=2):
         return self._post("/Student/StudyTask/SubmitChoseWord",
                           {"task_id": task_id, "task_type": task_type, "grade": grade,
                            "course_id": course_id, "list_id": list_id,
-                           "word_map": word_map, "chose_err_item": 1, "reset_chose_words": 1})
+                           "word_map": word_map, "chose_err_item": 1, "reset_chose_words": 1},
+                          base=STUDENT_API)
 
     def study_start_answer(self, task_id, course_id, list_id, task_type=3, grade=2):
         return self._get("/Student/StudyTask/StartAnswer",
                          {"task_id": task_id, "task_type": task_type, "grade": grade,
                           "course_id": course_id, "list_id": list_id,
                           "opt_img_w": 2300, "opt_font_size": 128, "opt_font_c": "#000000",
-                          "it_img_w": 2702, "it_font_size": 144})
+                          "it_img_w": 2702, "it_font_size": 144}, base=STUDENT_API)
 
     def study_verify(self, topic_code, answer):
         return self._post("/Student/StudyTask/VerifyAnswer",
-                          {"topic_code": topic_code, "answer": answer})
+                          {"topic_code": topic_code, "answer": answer}, base=STUDENT_API)
 
     def study_submit(self, topic_code, time_spent):
         return self._post("/Student/StudyTask/SubmitAnswerAndSave",
                           {"topic_code": topic_code, "time_spent": time_spent,
                            "opt_img_w": 2300, "opt_font_size": 128, "opt_font_c": "#000000",
-                           "it_img_w": 2702, "it_font_size": 144})
+                           "it_img_w": 2702, "it_font_size": 144}, base=STUDENT_API)
 
     # ---- 查词接口（easy_cidaren 思路，供规则匹配）----
     def query_word(self, course_id, list_id, word):
@@ -189,7 +188,7 @@ class Client:
             "list_id": list_id,
             "word": word,
             "timestamp": _ms(),
-            "version": "2.6.1.231204",
+            "version": VERSION,
             "app_type": 1,
         }
         url = f"{STUDENT_API}/Course/StudyWordInfo"
@@ -202,15 +201,14 @@ class Client:
     # ---- 自动签到 ----
     def signin(self):
         """每日签到。"""
-        return self._post("/Student/TaskStudentSignin/Do", {})
+        return self._post("/Student/TaskStudentSignin/Do", {}, base=STUDENT_API)
 
     def search_word(self, word: str):
         """用官方接口把单词转原型（替代 easy 的 spaCy 依赖）。"""
-        import time
         params = {
             "word": word,
             "timestamp": str(int(time.time() * 1000)),
-            "version": "2.6.2.24031302",
+            "version": VERSION,
             "app_type": 1,
         }
         url = f"{STUDENT_API}/Course/SearchWord"
@@ -230,7 +228,7 @@ def token_valid(usertoken: str, abc: str = "", auth_v: str = "") -> tuple:
     """
     c = Client(usertoken, abc, auth_v)
     try:
-        resp = c._get("/Student/Main", {}, base=BASE)
+        resp = c._get("/Student/Main", {}, base=STUDENT_API)
     except SecurityVerifyError as e:
         return False, {"error": "security_verify", "detail": str(e)}
     except ApiError:

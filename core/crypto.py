@@ -10,6 +10,7 @@ import base64
 import hashlib
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 SALT = "ajfajfamsnfaflfasakljdlalkflak"
@@ -18,52 +19,157 @@ SALT = "ajfajfamsnfaflfasakljdlalkflak"
 _crypto_context = None
 
 
+def crypto_file_path(path=None) -> Path:
+    """Return the active jv=99 credential path."""
+    if path:
+        return Path(path).expanduser().resolve()
+    env_path = os.environ.get("CIDAREN_CRYPTO_FILE")
+    if env_path:
+        return Path(env_path).expanduser().resolve()
+    return Path(__file__).resolve().parent.parent / "config" / "crypto.json"
+
+
+def _json_loads_maybe(value):
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
+def _decode_base64(value):
+    if not value:
+        return None
+    if isinstance(value, bytes):
+        value = value.decode("ascii")
+    value = str(value).strip().replace(" ", "")
+    value += "=" * (-len(value) % 4)
+    return base64.b64decode(value, validate=True)
+
+
 def set_crypto_document(document):
     """进程内注入加密上下文（登录成功后调用）。"""
     global _crypto_context
     if isinstance(document, bytes):
         document = document.decode("utf-8")
-    _crypto_context = json.loads(document) if isinstance(document, str) else document
+    document = _json_loads_maybe(document)
+    if not isinstance(document, dict) or _decode_crypto_document(document) is None:
+        raise ValueError("crypto document contains no valid shared_secret and salt")
+    _crypto_context = json.loads(json.dumps(document))
+
+
+def clear_crypto_document():
+    """Clear the process-local OAuth crypto document."""
+    global _crypto_context
+    _crypto_context = None
 
 
 def _decode_prefixed_base64(value, prefix):
     if not value:
         return None
+    if isinstance(value, bytes):
+        value = value.decode("ascii")
+    value = str(value).strip()
     if value.startswith(prefix):
         value = value[1:]
-    return base64.b64decode(value)
+    return _decode_base64(value)
+
+
+def _decode_crypto_document(document):
+    document = _json_loads_maybe(document)
+    if not isinstance(document, dict):
+        return None
+    login_info = document.get("login_info") or document.get("CDR_LOGIN_INFO") or document.get("loginInfo")
+    login_info = _json_loads_maybe(login_info)
+    if not isinstance(login_info, dict):
+        login_info = document
+
+    # Upstream files use a=h<base64 secret> and b=a<base64 salt>. The explicit
+    # fields make the generated file easier to inspect without changing that
+    # compatible representation.
+    if login_info.get("a") and login_info.get("b"):
+        shared_secret = _decode_prefixed_base64(login_info.get("a"), "h")
+        salt = _decode_prefixed_base64(login_info.get("b"), "a")
+    else:
+        shared_secret = _decode_base64(
+            login_info.get("shared_secret") or login_info.get("sharedSecret")
+        )
+        salt = _decode_base64(login_info.get("salt"))
+    if not shared_secret or not salt:
+        return None
+    return shared_secret, salt
+
+
+def write_crypto_document(document, path=None, token: str = "") -> Path:
+    """Persist an OAuth crypto document atomically as config/crypto.json."""
+    document = _json_loads_maybe(document)
+    if not isinstance(document, dict):
+        raise ValueError("crypto document must be a JSON object")
+    decoded = _decode_crypto_document(document)
+    if decoded is None:
+        raise ValueError("crypto document contains no valid shared_secret and salt")
+
+    shared_secret, salt = decoded
+    payload = json.loads(json.dumps(document))
+    payload["login_info"] = payload.get("login_info") or {
+        "a": "h" + base64.b64encode(shared_secret).decode("ascii"),
+        "b": "a" + base64.b64encode(salt).decode("ascii"),
+    }
+    if token:
+        payload["token"] = token
+    payload["shared_secret"] = base64.b64encode(shared_secret).decode("ascii")
+    payload["salt"] = base64.b64encode(salt).decode("ascii")
+    payload["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    target = crypto_file_path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    try:
+        fd = os.open(str(temporary), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+        try:
+            os.chmod(target, 0o600)
+        except OSError:
+            pass
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+    set_crypto_document(payload)
+    return target
 
 
 def _read_crypto_context():
     """读取加密上下文：优先进程内注入，其次从 crypto.json 文件读。"""
     global _crypto_context
     if _crypto_context is not None:
-        login_info = _crypto_context.get("login_info") or _crypto_context
-        shared_secret = _decode_prefixed_base64(login_info.get("a", ""), "h")
-        salt = _decode_prefixed_base64(login_info.get("b", ""), "a")
-        if shared_secret and salt:
-            return shared_secret, salt
+        decoded = _decode_crypto_document(_crypto_context)
+        if decoded is not None:
+            return decoded
 
     # 从文件读
-    env_path = os.environ.get("CIDAREN_CRYPTO_FILE")
-    candidates = []
-    if env_path:
-        candidates.append(Path(env_path))
     root = Path(__file__).resolve().parent.parent
-    candidates.extend([
+    candidates = [
+        crypto_file_path(),
         root / "config" / "crypto.json",
         root / "crypto.json",
-    ])
+        Path.cwd() / "config" / "crypto.json",
+    ]
     for path in candidates:
         if not path.exists():
             continue
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        login_info = data.get("login_info") or data
-        shared_secret = _decode_prefixed_base64(login_info.get("a", ""), "h")
-        salt = _decode_prefixed_base64(login_info.get("b", ""), "a")
-        if shared_secret and salt:
-            return shared_secret, salt
+        decoded = _decode_crypto_document(data)
+        if decoded is not None:
+            return decoded
 
     raise RuntimeError(
         "收到 jv=99 加密响应，但未找到加密密钥。"
@@ -80,6 +186,7 @@ def _decrypt_jv99(payload):
     except ImportError:
         raise RuntimeError("jv=99 解密需要 cryptography 库，请先 pip install cryptography。")
 
+    payload = _json_loads_maybe(payload)
     if isinstance(payload, dict) and payload.get("payload"):
         payload = payload["payload"]
     if not isinstance(payload, dict):
@@ -214,20 +321,21 @@ def decrypt_data(data, jv):
     """解密响应体 data 字段。data 可能是 str（需解噪+base64）或已是 dict。"""
     if data is None:
         return None
+    jv = str(jv or "")
+    if jv == "99":
+        # jv=99 payload is itself a dict. Check it before the generic dict
+        # passthrough, otherwise encrypted responses are silently returned raw.
+        return _decrypt_jv99(data)
     if isinstance(data, dict):
         return data
     if not isinstance(data, str) or not data:
         return data
-    jv = str(jv or "")
     if not jv or jv == "0":
         # 未加密，尝试直接 json
         try:
             return json.loads(data)
         except (ValueError, TypeError):
             return data
-    if jv == "99":
-        # 新版 AES-GCM 加密
-        return _decrypt_jv99(data)
     if jv == "1":
         raw = data[32:]
     elif jv == "4":

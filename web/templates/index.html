@@ -471,7 +471,7 @@
         
         <!-- 快捷操作 -->
         <div style="display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;">
-          <button class="btn btn-success" onclick="openQr()">微信扫码登录</button>
+          <button class="btn btn-success" onclick="openOAuth()">微信 OAuth V2 登录</button>
           <button class="btn btn-outline" onclick="checkToken()">校验 Token</button>
           <div id="stats-box" class="status-badge status-info">答案库: -</div>
         </div>
@@ -884,23 +884,28 @@
       }
     }
 
-    // 微信扫码登录
-    async function openQr() {
+    // 微信 OAuth V2 登录：扫码授权后回填 app.vocabgo.com 的完整回调 URL
+    async function openOAuth() {
       try {
-        const r = await fetch('/api/login_qr', {method: 'POST'});
+        const r = await fetch('/api/login_start', {method: 'POST'});
         const d = await r.json();
         if (!d.ok || !d.qr_base64) { alert('生成二维码失败: ' + ((d && d.error) || ('HTTP ' + r.status))); return; }
         const mask = document.createElement('div');
         mask.id = 'qr-mask';
         mask.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:99';
-        mask.innerHTML = `<div style="background:#fff;padding:20px;border-radius:12px;text-align:center;max-width:320px">
-            <h3 style="margin:0 0 10px">微信扫码登录</h3>
+        mask.innerHTML = `<div style="background:#fff;padding:20px;border-radius:12px;text-align:center;max-width:380px;width:92%">
+            <h3 style="margin:0 0 8px">微信 OAuth V2 登录</h3>
             <img src="data:image/png;base64,${d.qr_base64}" style="width:240px;height:240px" />
-            <p id="qr-status" style="font-size:13px;color:#666;margin:10px 0">扫码并在手机确认，Token 会自动写入配置</p>
-            <button class="btn btn-outline btn-sm" onclick="closeQr()">取消</button>
+            <p style="font-size:13px;color:#555;margin:8px 0">用微信扫码并确认授权；授权完成后把最终页面地址完整复制回来。</p>
+            <a href="${escapeHtml(d.authorization_url || d.redirect_url || '')}" target="_blank" rel="noopener" style="font-size:12px;color:#4f46e5;word-break:break-all">授权链接打不开二维码时可点这里</a>
+            <textarea id="oauth-callback-url" placeholder="粘贴 https://app.vocabgo.com/student/?... 完整回调 URL" style="width:100%;height:72px;margin:12px 0 8px;padding:9px;border:1px solid #dbe2ea;border-radius:8px;font-size:12px;resize:vertical"></textarea>
+            <p id="qr-status" style="font-size:13px;color:#666;margin:0 0 10px">登录成功后会同时写入 USERTOKEN 和 config/crypto.json</p>
+            <div style="display:flex;gap:8px;justify-content:center">
+              <button class="btn btn-success btn-sm" onclick="submitOauthCallback()">完成登录</button>
+              <button class="btn btn-outline btn-sm" onclick="closeQr()">取消</button>
+            </div>
           </div>`;
         document.body.appendChild(mask);
-        pollQr();
       } catch (e) {
         alert('请求失败: ' + (e && e.message ? e.message : e));
       }
@@ -911,27 +916,36 @@
       if (m) m.remove();
     }
 
-    async function pollQr() {
+    async function submitOauthCallback() {
       const el = document.getElementById('qr-status');
-      if (!el) return;
+      const input = document.getElementById('oauth-callback-url');
+      if (!el || !input) return;
+      const callbackUrl = input.value.trim();
+      if (!callbackUrl) {
+        el.textContent = '请先粘贴微信授权后的完整回调 URL';
+        el.style.color = '#c62828';
+        return;
+      }
+      el.textContent = '正在用 OAuth code 换取 token 和共享密钥…';
+      el.style.color = '#666';
       try {
-        const r = await fetch('/api/login_poll');
+        const r = await fetch('/api/login_callback', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({callback_url: callbackUrl})
+        });
         const d = await r.json();
         if (d.ok) {
-          el.textContent = '✓ 登录成功: ' + d.name;
+          el.textContent = '✓ 登录成功: ' + d.name + '；已写入 ' + d.crypto_file;
           el.style.color = '#0a7d32';
           setTimeout(function () { closeQr(); loadConfig(); checkToken(); loadTasks(); }, 1500);
           return;
         }
-        if (d.error && !d.pending) {
-          el.textContent = '✗ ' + d.error;
-          el.style.color = '#c62828';
-          return;
-        }
-        el.textContent = '等待扫码…';
-        setTimeout(pollQr, 2000);
+        el.textContent = '✗ ' + (d.error || ('HTTP ' + r.status));
+        el.style.color = '#c62828';
       } catch (e) {
-        setTimeout(pollQr, 2000);
+        el.textContent = '✗ 请求失败: ' + (e && e.message ? e.message : e);
+        el.style.color = '#c62828';
       }
     }
 

@@ -1,131 +1,114 @@
 # -*- coding: utf-8 -*-
-"""
-login.py — 微信扫码登录（移植 Rain-shadow/cdr 的授权流程，可选，免 Fiddler 抓包）
+"""Cidaren OAuth V2 login helpers.
 
-原理：本地生成 user_token -> 请求授权接口拿 redirect_url -> 生成二维码
-      微信扫码授权后 token 立即生效。仅能获取 USERTOKEN；ABC/AUTH_V 仍可在配置面板补充。
+The old QR flow only waited for a manually supplied ``USERTOKEN``. The V2
+flow binds a WeChat authorization code to an ECDH shared secret, so a
+successful login produces both ``USERTOKEN`` and ``config/crypto.json``.
 """
 from __future__ import annotations
 
 import base64
-import random
+import io
 import time
 
-import requests
-
 from core.api import token_valid
-from core.crypto import md5
-
-GATEWAY = "https://gateway.vocabgo.com"
-VERSION = "1.2.0"
-UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
+from core.config import get_runtime_config, save_runtime_config
+from core.crypto import md5, write_crypto_document
+from core.oauth import (
+    LOGIN_VERSION,
+    OAUTH_USER_AGENT,
+    OAuthSession,
+    begin_authorization,
+    exchange_callback,
 )
-SALT = "ajfajfamsnfaflfasakljdlalkflak"
+
+VERSION = LOGIN_VERSION
+BUSINESS_AUTH_V = md5("0")
 
 
-def _ms() -> int:
-    return int(time.time() * 1000)
-
-
-def _random_user_token() -> str:
-    pass_list = "abcde0123456789"
-    token = "".join(random.choice(pass_list) for _ in range(32))
-    return md5(f"{token}{_ms()}")
-
-
-def _authorize(user_token: str) -> str:
-    """请求授权接口，返回 redirect_url（微信登录链接）。"""
-    now_time = _ms()
-    sign = md5(
-        f"auth_type=1&return_url=https://app.vocabgo.com/overall/#/student/home"
-        f"&timestamp={now_time}&user_token={user_token}&versions={VERSION}{SALT}"
-    )
-    data = {
-        "return_url": "https://app.vocabgo.com/overall/#/student/home",
-        "auth_type": 1,
-        "user_token": user_token,
-        "timestamp": now_time,
-        "versions": VERSION,
-        "sign": sign,
-    }
-    headers = {
-        "Content-Type": "application/json;charset=UTF-8",
-        "Host": "app.vocabgo.com",
-        "Origin": "https://app.vocabgo.com",
-        "Referer": "https://app.vocabgo.com/",
-        "User-Agent": UA,
-        "X-DevTools-Emulate-Network-Conditions-Client-Id": md5(UA).upper(),
-        "X-Requested-With": "XMLHttpRequest",
-    }
-    resp = requests.post(f"{GATEWAY}/Auth/Thirdpart/Authorize", headers=headers, json=data, timeout=20)
-    j = resp.json()
-    data_obj = j.get("data") or {}
-    redirect_url = data_obj.get("redirect_url") or ""
-    if not redirect_url:
-        raise RuntimeError(f"授权接口异常: {j}")
-    return redirect_url
-
-
-def _gateway_token_valid(user_token: str) -> bool:
-    """用旧网关接口验证 token（扫码登录配套）。"""
-    headers = {
-        "UserToken": user_token,
-        "User-Agent": UA,
-        "X-Requested-With": "XMLHttpRequest",
-        "Accept": "application/json",
-    }
+def _qr_png(value: str) -> str | None:
     try:
-        resp = requests.get(
-            f"{GATEWAY}/Student/Main?timestamp={_ms()}&versions={VERSION}",
-            headers=headers, timeout=20,
+        import qrcode
+
+        qr = qrcode.QRCode(
+            version=3,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=7,
+            border=2,
         )
-        return resp.json().get("code") == 1
-    except Exception:
-        return False
+        qr.add_data(value)
+        qr.make(fit=True)
+        image = qr.make_image()
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return base64.b64encode(buffer.getvalue()).decode("ascii")
+    except ImportError:
+        return None
+
+
+def login_start() -> dict:
+    """Create a state-bound OAuth V2 authorization URL and QR image."""
+    authorization = begin_authorization()
+    return {
+        "authorization_url": authorization.authorization_url,
+        "redirect_url": authorization.authorization_url,
+        "state_digest": authorization.state_digest,
+        "marker_digest": authorization.marker_digest,
+        "qr_base64": _qr_png(authorization.authorization_url),
+        "expires_at": time.time() + 600,
+    }
+
+
+def complete_login(
+    callback_url: str,
+    state_digest: str,
+    marker_digest: str,
+    *,
+    session=None,
+    crypto_file=None,
+    timeout: float = 20.0,
+) -> dict:
+    """Exchange the callback, persist credentials, and return token metadata."""
+    oauth_session: OAuthSession = exchange_callback(
+        callback_url,
+        state_digest,
+        marker_digest,
+        session=session,
+        timeout=timeout,
+    )
+    crypto_path = write_crypto_document(
+        oauth_session.crypto_document,
+        path=crypto_file,
+        token=oauth_session.token,
+    )
+
+    config = get_runtime_config()
+    config.update(
+        {
+            "USERTOKEN": oauth_session.token,
+            "ABC": md5(OAUTH_USER_AGENT),
+            "AUTH_V": BUSINESS_AUTH_V,
+            "TOKEN_SAVED_AT": str(time.time()),
+        }
+    )
+    save_runtime_config(config)
+
+    user_info = dict(oauth_session.user_info or {})
+    name = user_info.get("student_name") or user_info.get("nick_name") or "?"
+    return {
+        "token": oauth_session.token,
+        "name": name,
+        "user_info": user_info,
+        "crypto_file": str(crypto_path),
+        "version": VERSION,
+    }
 
 
 def is_token_valid(user_token: str, abc: str = "", auth_v: str = "") -> tuple:
-    """先新接口后旧接口验证。返回 (ok, info)。
-
-    服务端返回 11003（需安全验证）时直接透出原因：这是风控，不是 token 过期，
-    也不再去试已下线（404）的旧网关，避免把风控误报成"Token 无效"。
-    """
-    ok, info = token_valid(user_token, abc, auth_v)
-    if ok:
-        return True, info
-    if isinstance(info, dict) and info.get("error") == "security_verify":
-        return False, info
-    if _gateway_token_valid(user_token):
-        return True, {"student_name": "?"}
-    return False, None
+    """Validate a token through the current student API."""
+    return token_valid(user_token, abc, auth_v)
 
 
-def qr_authorize() -> dict:
-    """
-    生成扫码授权会话。返回:
-      {user_token, redirect_url, qr_base64(可选), expire_at}
-    调用方应轮询 is_token_valid(user_token) 直到生效。
-    """
-    user_token = _random_user_token()
-    redirect_url = _authorize(user_token)
-    result = {
-        "user_token": user_token,
-        "redirect_url": redirect_url,
-        "expire_at": time.time() + 600,
-    }
-    try:
-        import qrcode  # 可选依赖
-        qr = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_L,
-                           box_size=6, border=2)
-        qr.add_data(redirect_url)
-        qr.make(fit=True)
-        img = qr.make_image()
-        import io
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        result["qr_base64"] = base64.b64encode(buf.getvalue()).decode()
-    except ImportError:
-        result["qr_base64"] = None
-    return result
+def _gateway_token_valid(user_token: str) -> bool:
+    """Compatibility stub for callers from the retired token-polling flow."""
+    return False

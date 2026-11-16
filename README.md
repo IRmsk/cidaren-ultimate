@@ -1,6 +1,6 @@
 # cidaren-ultimate
 
-**词汇学习自动化框架（v2.8.1）**：融合 5 个开源项目的工程实践，多源答案融合 + 自学习题库 + Mock Server E2E 测试。纯 Python，Web 控制台 + CLI 双入口，Termux 可直接运行。
+**词汇学习自动化框架（v2.9.0）**：融合 5 个开源项目的工程实践，多源答案融合 + 自学习题库 + OAuth V2 登录 + Mock Server E2E 测试。纯 Python，Web 控制台 + CLI 双入口，Termux 可直接运行。
 
 > 本项目为个人学习与工程研究用途，探索多源信息融合、自学习缓存、无凭证集成测试等技术模式。
 
@@ -14,7 +14,8 @@
 │   ├── api.py          # API 客户端
 │   ├── bank.py         # 三库合一答案库：题库缓存 + 短语库 + 单词库（自学习，跨进程文件锁）
 │   ├── ai.py           # LLM 客户端（OpenAI 兼容，按题型定制 prompt）
-│   ├── login.py        # 微信扫码登录
+│   ├── oauth.py        # 微信 OAuth V2 / ECDH 登录协议
+│   ├── login.py        # 登录编排 + token / crypto.json 持久化
 │   └── ocr.py          # 图片题干/选项识别（LLM / tesseract / 百度 OCR）
 ├── solver/              # 答题逻辑
 │   ├── solver.py       # 全题型答题引擎（19 种题型，多源融合）
@@ -36,8 +37,18 @@ python main.py            # 打开 http://localhost:5000
 ```
 
 在配置面板二选一登录：
-1. **微信扫码登录**（一键，无需抓包）
+1. **微信 OAuth V2 登录**：扫码或在微信中打开授权链接，授权完成后把最终 `app.vocabgo.com/student/?...` 页面地址粘贴回面板。后台会用 OAuth code 换取 `USERTOKEN`，同时写出 `config/crypto.json`。
 2. 手动填 `USERTOKEN`
+
+OAuth V2 登录使用的关键协议参数：
+
+- 登录接口：`/student/api/Auth/Wechat/V2/LoginByWechatCode`
+- 登录请求头：`Abc = md5(实际 User-Agent)`，`Authorization-v: 00`
+- 班级任务：`https://app.vocabgo.com/studentv1/api`
+- 学习 / 查词：`https://app.vocabgo.com/student/api/Student`
+- 当前 H5 版本：`2.7.0.261019_01`
+
+业务请求会自动使用 `Abc = md5(实际 User-Agent)` 与 `Authorization-v = md5("0")`。`jv=99` 使用 `crypto.json` 中的 ECDH `shared_secret` 和 handshake `salt`，按 `HKDF-SHA256("vcg-exam-aes:<ucd>")` 派生 AES-256-GCM 密钥。
 
 然后可选配置 LLM（OpenAI 兼容：DeepSeek / Kimi / 豆包 / 本地 Ollama），保存后即可在任务面板启动。
 
@@ -106,6 +117,7 @@ python -m pytest tests/ -v
 
 ```bash
 python main.py check                            # 校验 token
+python main.py login                            # OAuth V2 登录，写 token + crypto.json
 python main.py resume                           # 断点恢复：完成所有未完成任务
 python main.py class <task_id> <release_id>     # 单个班级任务
 python main.py study <task_id> <list_id> [course_id] [task_type] [grade]
@@ -150,14 +162,13 @@ sh stop.sh
 
 | 脚本 | 用途 |
 |---|---|
-| `tools/qr_login.py` | 命令行生成微信授权链接并轮询，token 生效后写回 `.env`（无浏览器场景） |
+| `tools/qr_login.py` | 命令行生成 OAuth V2 授权链接，粘贴回调后用 code 换取 token，并同时写 `.env` + `config/crypto.json` |
 | `tools/watch_task.py` | 轮询单个任务直到结束，输出进度与最终分数 |
 
 常见排查：
 
 - `python3 web/app.py` 直接启动会 `ModuleNotFoundError: core`，统一用 `python3 main.py`（入口做了 `sys.path` 注入）。
-- `token_check` 返回 11003 时先分清两种情况：**空 usertoken 请求 `/Student/Main` 同样返回 11003**，
-  所以这个码本身不代表风控，多半是登录态无效——先重新扫码换 USERTOKEN，仍有问题再按风控处理。
+- `token_check` 返回 11003 时先重新做一次 OAuth V2 登录；新版登录会同时刷新 `USERTOKEN` 与 `config/crypto.json`。
 
 ## 版本历史
 
@@ -181,10 +192,12 @@ sh stop.sh
 | v2.7.3 | 修复 31 搭配题无解崩溃 + 题库来源声明（THIRD_PARTY_NOTICES） |
 | v2.8.0 | Mock Server 全面升级：首判计分对齐真实服务端 + 全 19 种题型覆盖 + 单题异常兜底 + 空白试探路径测试（29 项测试全绿） |
 | v2.8.1 | 修复内置题库未加载（数据目录指错）+ legacy 3/4 段键失配；报告 fix 不再计为答对；报告 key 路径穿越、配置丢字段、POST 重试双提交、任务名 XSS；补冷启动/回归测试（43 项） |
+| v2.9.0 | OAuth V2 替换旧扫码授权；登录同时写 `config/crypto.json`；班级走 `studentv1`、学习/查词走旧 `student`；修复字典型 `jv=99` 响应未解密 |
 
 ## 已知限制
 
-- `jv=99` 响应需要 `config/crypto.json`（共享密钥）。仓库不提供，扫码登录只返回 `USERTOKEN`；没有该文件时遇到 `jv=99` 会抛明确异常。
+- `jv=99` 解密依赖 OAuth V2 登录生成的 `config/crypto.json`。该文件包含 token 与共享密钥，已加入 `.gitignore`，不要上传或分享。
+- WeChat OAuth code 是一次性的，且必须来自当前面板刚生成的授权链接；若回调 URL 填错或过期，需要重新生成授权链接。
 - `python -m cidaren` 不可用（项目根不是 `cidaren` 包），统一用 `python main.py`。
 - 内置 `data/bank_legacy.json` 是多来源合并格式（3/4/5 段键），解析逻辑已兼容，但仍有部分上游格式无法一一对应。
 
