@@ -223,6 +223,8 @@ class OAuthV2Test(unittest.TestCase):
         client.study_task_list()
         self.assertTrue(seen[0][1].startswith(api.BASE))
         self.assertTrue(seen[1][1].startswith(api.STUDENT_API))
+        self.assertIn("/Student/StudyTask/List", seen[1][1])
+        self.assertNotIn("/Student/Student/", seen[1][1])
 
 
 if __name__ == "__main__":

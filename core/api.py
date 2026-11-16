@@ -19,7 +19,7 @@ VERSION = LOGIN_VERSION
 # 支持 CIDAREN_API_BASE / CIDAREN_STUDENT_API 环境变量覆盖（mock server 测试用）
 BASE = os.environ.get("CIDAREN_API_BASE", "https://app.vocabgo.com/studentv1/api")
 # 学习任务/查词仍走旧 student API；班级业务走 studentv1。
-STUDENT_API = os.environ.get("CIDAREN_STUDENT_API", "https://app.vocabgo.com/student/api/Student")
+STUDENT_API = os.environ.get("CIDAREN_STUDENT_API", "https://app.vocabgo.com/student/api")
 
 DEFAULT_UA = OAUTH_USER_AGENT
 DEFAULT_AUTH_V = md5("0")
@@ -191,7 +191,7 @@ class Client:
             "version": VERSION,
             "app_type": 1,
         }
-        url = f"{STUDENT_API}/Course/StudyWordInfo"
+        url = f"{STUDENT_API}/Student/Course/StudyWordInfo"
         try:
             resp = self.s.get(url, params=params, timeout=self.timeout)
             return self._handle(resp)
@@ -211,7 +211,7 @@ class Client:
             "version": VERSION,
             "app_type": 1,
         }
-        url = f"{STUDENT_API}/Course/SearchWord"
+        url = f"{STUDENT_API}/Student/Course/SearchWord"
         try:
             resp = self.s.get(url, params=params, timeout=self.timeout)
             return self._handle(resp)

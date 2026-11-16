@@ -45,7 +45,7 @@ OAuth V2 登录使用的关键协议参数：
 - 登录接口：`/student/api/Auth/Wechat/V2/LoginByWechatCode`
 - 登录请求头：`Abc = md5(实际 User-Agent)`，`Authorization-v: 00`
 - 班级任务：`https://app.vocabgo.com/studentv1/api`
-- 学习 / 查词：`https://app.vocabgo.com/student/api/Student`
+- 学习 / 查词：`https://app.vocabgo.com/student/api`（具体接口路径以 `/Student/...` 开头）
 - 当前 H5 版本：`2.7.0.261019_01`
 
 业务请求会自动使用 `Abc = md5(实际 User-Agent)` 与 `Authorization-v = md5("0")`。`jv=99` 使用 `crypto.json` 中的 ECDH `shared_secret` 和 handshake `salt`，按 `HKDF-SHA256("vcg-exam-aes:<ucd>")` 派生 AES-256-GCM 密钥。
